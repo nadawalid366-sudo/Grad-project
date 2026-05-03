@@ -3,15 +3,16 @@ import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Modal,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Modal,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
+import { fetchDoctorDashboard } from '../../services/api';
 
 interface MetricCard {
   id: string;
@@ -53,6 +54,7 @@ export default function DoctorDashboard() {
   const route = useRoute();
   const router = useRouter();
   const [doctorName, setDoctorName] = useState('Doctor');
+  const [doctorEmail, setDoctorEmail] = useState('doctor@example.com');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTab, setSelectedTab] = useState('dashboard');
   const [isCreatePlanModalVisible, setIsCreatePlanModalVisible] = useState(false);
@@ -67,7 +69,27 @@ export default function DoctorDashboard() {
     const params = route.params as any;
     const name = params?.doctorName || 'Doctor';
     setDoctorName(name);
+    setDoctorEmail(params?.email || 'doctor@example.com');
   }, [route.params]);
+
+  const [dashboardData, setDashboardData] = useState<any>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetchDoctorDashboard(doctorEmail)
+      .then((response) => {
+        if (!active) return;
+        setDashboardData(response);
+        if (response.doctor?.doctorName) {
+          setDoctorName(String(response.doctor.doctorName));
+        }
+      })
+      .catch((error) => console.log('Failed to load doctor dashboard:', error));
+
+    return () => {
+      active = false;
+    };
+  }, [doctorEmail]);
 
   const metrics: MetricCard[] = [
     {
@@ -301,7 +323,7 @@ export default function DoctorDashboard() {
 
         {/* Metric Cards */}
         <View style={styles.metricsSection}>
-          {metrics.map(renderMetricCard)}
+          {(dashboardData?.metrics || metrics).map(renderMetricCard)}
         </View>
 
         {/* Engagement Card */}
@@ -323,7 +345,7 @@ export default function DoctorDashboard() {
             </TouchableOpacity>
           </View>
           <View style={styles.alertsList}>
-            {recentAlerts.map(renderAlert)}
+            {(dashboardData?.recentAlerts || recentAlerts).map(renderAlert)}
           </View>
         </View>
 
@@ -331,7 +353,7 @@ export default function DoctorDashboard() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Patient Activity</Text>
           <View style={styles.activityList}>
-            {patientActivity.map(renderActivity)}
+            {(dashboardData?.patientActivity || patientActivity).map(renderActivity)}
           </View>
         </View>
 

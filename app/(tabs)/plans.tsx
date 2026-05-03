@@ -12,6 +12,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { fetchPatientDashboard } from '../../services/api';
 
 interface Plan {
   id: string;
@@ -29,6 +30,7 @@ export default function HealthPlans() {
   const route = useRoute();
   const router = useRouter();
   const [userData, setUserData] = useState<any>(null);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState(false);
   const [voiceAssistantScreen, setVoiceAssistantScreen] = useState<'listening' | 'confirmation'>('listening');
   const [selectedLogType, setSelectedLogType] = useState<string>('');
@@ -47,6 +49,40 @@ export default function HealthPlans() {
       });
     }
   }, [route.params]);
+
+  useEffect(() => {
+    const email = userData?.email;
+    if (!email) {
+      return;
+    }
+
+    let active = true;
+    fetchPatientDashboard(email)
+      .then((response) => {
+        if (!active) return;
+
+        const mappedPlans = (response.plans || []).map((plan: any, index: number) => ({
+          id: plan.id || plan._id || String(index + 1),
+          type: plan.type || 'meal',
+          title: plan.title || 'Health Plan',
+          description: plan.description || '',
+          icon: plan.icon || 'calendar',
+          color: plan.color || '#3B82F6',
+          backgroundColor: plan.backgroundColor || '#DBEAFE',
+          completed: plan.completed,
+          total: plan.total,
+        }));
+
+        setPlans(mappedPlans);
+      })
+      .catch((error) => {
+        console.log('Failed to load plans:', error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [userData?.email]);
 
   // Pulsating animation
   useEffect(() => {
@@ -84,10 +120,6 @@ export default function HealthPlans() {
   const handleListeningComplete = () => {
     setVoiceAssistantScreen('confirmation');
   };
-
-  const plans: Plan[] = [
-    // Empty initially - users can create their own plans
-  ];
 
   const planCategories = [
     {
@@ -173,7 +205,7 @@ export default function HealthPlans() {
             </Text>
             <TouchableOpacity 
               style={styles.findProfessionalsButton}
-              onPress={() => router.push('/(tabs)/professionals')}
+              onPress={() => router.push({ pathname: '/(tabs)/professionals', params: { email: userData?.email } })}
             >
               <Text style={styles.findProfessionalsText}>Find Professionals</Text>
             </TouchableOpacity>

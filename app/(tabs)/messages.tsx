@@ -1,6 +1,7 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Dimensions,
   FlatList,
@@ -12,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { fetchMessages, fetchUserSubscriptions, sendMessage } from '../../services/api';
 
 const { width } = Dimensions.get('window');
 
@@ -25,6 +27,11 @@ interface Doctor {
   unreadCount: number;
 }
 
+interface SubscriptionBanner {
+  professionalTitle: string;
+  planName: string;
+}
+
 interface Message {
   id: string;
   doctorId: string;
@@ -35,75 +42,103 @@ interface Message {
 }
 
 export default function MessagesPage() {
+  const route = useRoute();
   const router = useRouter();
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [selectedTab, setSelectedTab] = useState('messages');
   const [messageText, setMessageText] = useState('');
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      doctorId: '1',
-      sender: 'doctor',
-      message: 'Hello! How are you feeling today?',
-      timestamp: '10:30 AM',
-      isRead: true,
-    },
-    {
-      id: '2',
-      doctorId: '1',
-      sender: 'patient',
-      message: 'I\'m doing well, thanks for asking!',
-      timestamp: '10:35 AM',
-      isRead: true,
-    },
-    {
-      id: '3',
-      doctorId: '1',
-      sender: 'doctor',
-      message: 'Great! Remember to take your medications on time.',
-      timestamp: '10:40 AM',
-      isRead: true,
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [userEmail, setUserEmail] = useState('user@example.com');
+  const [subscriptionBanner, setSubscriptionBanner] = useState<SubscriptionBanner | null>(null);
 
-  const doctors: Doctor[] = [
-    {
-      id: '1',
-      name: 'Dr. Ahmed Hassan',
-      specialty: 'Cardiologist',
-      isOnline: true,
-      lastMessage: 'Great! Remember to take your medications on time.',
-      lastMessageTime: '10:40 AM',
-      unreadCount: 0,
-    },
-    {
-      id: '2',
-      name: 'Dr. Fatima Ali',
-      specialty: 'Endocrinologist',
-      isOnline: false,
-      lastMessage: 'Your recent lab results look good.',
-      lastMessageTime: 'Yesterday',
-      unreadCount: 2,
-    },
-    {
-      id: '3',
-      name: 'Dr. Omar Ibrahim',
-      specialty: 'General Practitioner',
-      isOnline: true,
-      lastMessage: 'Schedule your follow-up appointment.',
-      lastMessageTime: '2 days ago',
-      unreadCount: 0,
-    },
-    {
-      id: '4',
-      name: 'Dr. Layla Mohamed',
-      specialty: 'Nutritionist',
-      isOnline: false,
-      lastMessage: 'Here\'s your personalized diet plan.',
-      lastMessageTime: '3 days ago',
-      unreadCount: 0,
-    },
-  ];
+  useEffect(() => {
+    const params = route.params as any;
+    const email = params?.email || 'user@example.com';
+    const subscribedProfessionalTitle = params?.subscribedProfessionalTitle;
+    const subscribedPlanName = params?.subscribedPlanName;
+    const subscribedProfessionalId = params?.subscribedProfessionalId;
+    setUserEmail(email);
+    if (subscribedProfessionalTitle && subscribedPlanName) {
+      setSubscriptionBanner({
+        professionalTitle: String(subscribedProfessionalTitle),
+        planName: String(subscribedPlanName),
+      });
+    }
+
+    let active = true;
+    Promise.all([fetchMessages(email), fetchUserSubscriptions(email).catch(() => ({ subscriptions: [] }))])
+      .then(([messagesResponse, subscriptionsResponse]) => {
+        if (!active) return;
+
+        const grouped = new Map<string, Doctor & { messages: Message[] }>();
+        const flatMessages: Message[] = [];
+
+        const subscriptionDoctors: Doctor[] = (subscriptionsResponse.subscriptions || []).map((subscription: any, index: number) => ({
+          id: String(subscription.professionalId || subscription.id || `subscription-${index + 1}`),
+          name: String(subscription.selectedDoctorName || subscription.professionalTitle || 'Subscribed Program'),
+          specialty: String(subscription.planName || 'Subscribed Plan'),
+          isOnline: true,
+          lastMessage: `Subscribed to ${subscription.planName || 'a plan'}`,
+          lastMessageTime: subscription.subscribedAt ? new Date(subscription.subscribedAt).toLocaleDateString() : 'Now',
+          unreadCount: 0,
+        }));
+
+        (messagesResponse.messages || []).forEach((item: any, index: number) => {
+          const doctorId = String(item.doctorId || '1');
+          const doctorName = String(item.doctorName || 'Dr. Ahmed Hassan');
+
+          if (!grouped.has(doctorId)) {
+            grouped.set(doctorId, {
+              id: doctorId,
+              name: doctorName,
+              specialty: String(item.specialty || 'Care Team'),
+              isOnline: Boolean(item.isOnline ?? true),
+              lastMessage: String(item.lastMessage || item.message || ''),
+              lastMessageTime: String(item.lastMessageTime || item.timestamp || ''),
+              unreadCount: Number(item.unreadCount || 0),
+              messages: [],
+            });
+          }
+
+          const message: Message = {
+            id: String(item.id || item._id || index + 1),
+            doctorId,
+            sender: item.sender === 'doctor' ? 'doctor' : 'patient',
+            message: String(item.message || ''),
+            timestamp: String(item.timestamp || 'Now'),
+            isRead: Boolean(item.isRead ?? true),
+          };
+
+          grouped.get(doctorId)!.messages.push(message);
+          flatMessages.push(message);
+        });
+
+        const messageDoctors = Array.from(grouped.values()).map(({ messages: doctorMessages, ...doctor }) => doctor);
+        const mergedDoctors = [
+          ...subscriptionDoctors,
+          ...messageDoctors.filter((doctor) => !subscriptionDoctors.some((subscriptionDoctor) => subscriptionDoctor.id === doctor.id)),
+        ];
+
+        setDoctors(mergedDoctors);
+        setMessages(flatMessages);
+
+        const preferredDoctor =
+          mergedDoctors.find((doctor) => doctor.id === String(subscribedProfessionalId)) ||
+          mergedDoctors.find((doctor) => doctor.name === String(subscribedProfessionalTitle)) ||
+          mergedDoctors[0] ||
+          null;
+
+        setSelectedDoctor((currentSelected) => currentSelected || preferredDoctor);
+      })
+      .catch((error) => {
+        console.log('Failed to load messages:', error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [route.params]);
 
   const getDoctorInitials = (name: string) => {
     const cleanName = name.replace(/^dr\.?\s+/i, '').trim();
@@ -132,6 +167,11 @@ export default function MessagesPage() {
 
     setMessages([...messages, newMessage]);
     setMessageText('');
+    sendMessage(userEmail, {
+      doctorId: selectedDoctor.id,
+      doctorName: selectedDoctor.name,
+      message: newMessage.message,
+    }).catch((error) => console.log('Failed to send message:', error));
   };
 
   const messageFilteredByDoctor = selectedDoctor
@@ -220,6 +260,18 @@ export default function MessagesPage() {
           <Ionicons name="search" size={24} color="#3B82F6" />
         </TouchableOpacity>
       </View>
+
+      {subscriptionBanner && (
+        <View style={styles.subscriptionBanner}>
+          <MaterialCommunityIcons name="check-decagram" size={20} color="#2563EB" />
+          <View style={styles.subscriptionBannerTextWrap}>
+            <Text style={styles.subscriptionBannerTitle}>Subscribed program</Text>
+            <Text style={styles.subscriptionBannerText} numberOfLines={1}>
+              {subscriptionBanner.professionalTitle} - {subscriptionBanner.planName}
+            </Text>
+          </View>
+        </View>
+      )}
 
       {!selectedDoctor ? (
         // Doctors List View
@@ -327,7 +379,7 @@ export default function MessagesPage() {
       <View style={styles.bottomNavigation}>
         <TouchableOpacity 
           style={styles.navItem}
-          onPress={() => router.push('/(tabs)/home')}
+          onPress={() => router.push({ pathname: '/(tabs)/home', params: { email: userEmail } })}
         >
           <Ionicons 
             name="home" 
@@ -357,7 +409,7 @@ export default function MessagesPage() {
 
         <TouchableOpacity 
           style={styles.navItem}
-          onPress={() => router.push('/(tabs)/plans')}
+          onPress={() => router.push({ pathname: '/(tabs)/plans', params: { email: userEmail } })}
         >
           <Ionicons 
             name="calendar" 
@@ -387,7 +439,7 @@ export default function MessagesPage() {
 
         <TouchableOpacity 
           style={styles.navItem}
-          onPress={() => router.push('/(tabs)/prof')}
+          onPress={() => router.push({ pathname: '/(tabs)/prof', params: { email: userEmail } })}
         >
           <Ionicons 
             name="person" 
@@ -426,6 +478,36 @@ const styles = StyleSheet.create({
   },
   headerAction: {
     padding: 8,
+  },
+  subscriptionBanner: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  subscriptionBannerTextWrap: {
+    flex: 1,
+  },
+  subscriptionBannerTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#1D4ED8',
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  subscriptionBannerText: {
+    fontSize: 14,
+    color: '#1E3A8A',
+    fontWeight: '600',
   },
   listContainer: {
     flex: 1,

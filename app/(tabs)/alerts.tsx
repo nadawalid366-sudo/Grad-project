@@ -3,13 +3,14 @@ import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { fetchDoctorAlerts, resolveDoctorAlert } from '../../services/api';
 
 type SeverityLevel = 'Critical' | 'High' | 'Medium' | 'Low';
 
@@ -29,16 +30,43 @@ export default function AlertsScreen() {
   const route = useRoute();
   const router = useRouter();
   const [doctorName, setDoctorName] = useState('Doctor');
+  const [doctorEmail, setDoctorEmail] = useState('doctor@example.com');
   const [selectedSeverity, setSelectedSeverity] = useState<SeverityLevel | 'All'>('All');
   const [selectedTab, setSelectedTab] = useState('alerts');
+  const [dashboardAlerts, setDashboardAlerts] = useState<Alert[]>([]);
 
   useEffect(() => {
     const params = route.params as any;
     const name = params?.doctorName || 'Doctor';
     setDoctorName(name);
+    setDoctorEmail(params?.email || 'doctor@example.com');
   }, [route.params]);
 
-  const allAlerts: Alert[] = [
+  useEffect(() => {
+    let active = true;
+    fetchDoctorAlerts(doctorEmail)
+      .then((response) => {
+        if (!active) return;
+        setDashboardAlerts((response.alerts || []).map((alert: any, index: number) => ({
+          id: alert.id || alert._id || String(index + 1),
+          patientName: alert.patientName,
+          patientAge: Number(alert.patientAge || 0),
+          patientGender: alert.patientGender,
+          alertType: alert.alertType,
+          description: alert.description,
+          severity: alert.severity,
+          time: alert.time || 'Just now',
+          isResolved: Boolean(alert.isResolved),
+        })));
+      })
+      .catch((error) => console.log('Failed to load alerts:', error));
+
+    return () => {
+      active = false;
+    };
+  }, [doctorEmail]);
+
+  const allAlerts: Alert[] = dashboardAlerts.length > 0 ? dashboardAlerts : [
     {
       id: '1',
       patientName: 'Omar Hassan',
@@ -201,7 +229,10 @@ export default function AlertsScreen() {
             <Ionicons name="call" size={16} color="#FFFFFF" />
             <Text style={styles.actionButtonPrimaryText}>Contact Patient</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButtonSecondary}>
+          <TouchableOpacity
+            style={styles.actionButtonSecondary}
+            onPress={() => resolveDoctorAlert(doctorEmail, alert.id).catch((error) => console.log('Failed to resolve alert:', error))}
+          >
             <Ionicons name="checkmark" size={16} color="#3B82F6" />
             <Text style={styles.actionButtonSecondaryText}>Mark Resolved</Text>
           </TouchableOpacity>

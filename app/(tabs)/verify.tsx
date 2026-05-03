@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     ScrollView,
     StyleSheet,
@@ -10,6 +10,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import { verifyUser } from '../../services/api';
 
 export default function VerifyScreen() {
   const route = useRoute();
@@ -18,8 +19,9 @@ export default function VerifyScreen() {
   const userEmail = params?.email || 'user@example.com';
   
   const [code, setCode] = useState(['', '', '', '', '', '']);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [language, setLanguage] = useState('en');
-  const [phoneNumber] = useState('2345678');
+  const [phoneNumber, setPhoneNumber] = useState<string | null>(null);
   const inputRefs = useRef<(TextInput | null)[]>([]);
 
   const handleCodeInputChange = (index: number, value: string) => {
@@ -68,15 +70,22 @@ export default function VerifyScreen() {
 
   const isCodeComplete = code.every(digit => digit !== '');
 
-  const handleVerifyPress = () => {
+  const handleVerifyPress = async () => {
     if (!isCodeComplete) {
       alert('Please enter all 6 digits');
       return;
     }
-    const fullCode = code.join('');
-    console.log('Verification code submitted:', fullCode);
-    // Navigate to profile page with email
-    router.push({ pathname: '/(tabs)/profile', params: { email: userEmail } });
+
+    try {
+      setIsSubmitting(true);
+      const fullCode = code.join('');
+      await verifyUser({ email: userEmail, code: fullCode });
+      router.push({ pathname: '/(tabs)/profile', params: { email: userEmail } });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Verification failed');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleResendCodePress = () => {
@@ -99,6 +108,27 @@ export default function VerifyScreen() {
   const handleHelpPress = () => {
     console.log('Help button pressed');
   };
+
+  useEffect(() => {
+    let mounted = true;
+    async function fetchPhone() {
+      try {
+        const res = await (await import('../../services/api')).getUserByEmail(userEmail);
+        if (!mounted) return;
+        setPhoneNumber(res?.user?.phone || null);
+      } catch (err) {
+        console.log('Failed to fetch user phone:', err);
+      }
+    }
+
+    if (userEmail) {
+      fetchPhone();
+    }
+
+    return () => {
+      mounted = false;
+    };
+  }, [userEmail]);
 
   return (
     <View style={styles.container}>
@@ -133,7 +163,7 @@ export default function VerifyScreen() {
           {/* Header */}
           <Text style={styles.cardHeading}>Verify Your Phone</Text>
           <Text style={styles.cardSubtitle}>
-            Enter the 6-digit code sent to {phoneNumber}
+            Enter the 6-digit code sent to {phoneNumber ?? 'your phone'}
           </Text>
 
           {/* OTP Input Fields */}
@@ -165,9 +195,9 @@ export default function VerifyScreen() {
             ]}
             onPress={handleVerifyPress}
             activeOpacity={0.9}
-            disabled={!isCodeComplete}
+            disabled={!isCodeComplete || isSubmitting}
           >
-            <Text style={styles.verifyButtonText}>Verify</Text>
+            <Text style={styles.verifyButtonText}>{isSubmitting ? 'Verifying...' : 'Verify'}</Text>
           </TouchableOpacity>
 
           {/* Resend Code Link */}

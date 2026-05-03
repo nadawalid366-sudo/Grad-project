@@ -2,30 +2,48 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
+import { loginUser } from '../../services/api';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [language, setLanguage] = useState('en');
   const router = useRouter();
 
-  const handleSignInPress = () => {
-    // Handle sign in
+  const handleSignInPress = async () => {
     if (!email || !password) {
       alert('Please fill in all fields');
       return;
     }
-    console.log('User signing in:', { email, password });
-    // Navigate to patient home page
-    router.push('/(tabs)/home');
+
+    try {
+      setIsSubmitting(true);
+      const response = await loginUser({ email, password });
+
+      router.push({
+        pathname: '/(tabs)/home',
+        params: {
+          fullName: response.user.fullName,
+          age: response.user.age,
+          height: response.user.height,
+          weight: response.user.weight,
+          email: response.user.email,
+        },
+      });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Login failed');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleCreateAccountPress = () => {
@@ -146,8 +164,9 @@ export default function LoginScreen() {
             style={styles.signInButton}
             onPress={handleSignInPress}
             activeOpacity={0.9}
+            disabled={isSubmitting}
           >
-            <Text style={styles.signInButtonText}>Sign In</Text>
+            <Text style={styles.signInButtonText}>{isSubmitting ? 'Signing In...' : 'Sign In'}</Text>
           </TouchableOpacity>
 
           {/* Create Account Link */}

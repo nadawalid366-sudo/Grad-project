@@ -1,0 +1,105 @@
+export const defaultProfessionals = [
+  {
+    type: "doctor",
+    title: "Professional Doctors",
+    description: "Consult with licensed medical professionals for your health concerns",
+    icon: "stethoscope",
+    rating: 4.8,
+    reviewCount: 245,
+    features: [
+      "Direct consultation via messages and video calls",
+      "Access to medical history and prescriptions",
+      "Health monitoring and follow-ups",
+      "Appointment scheduling",
+      "Lab results analysis"
+    ],
+    subscriptionPlans: [
+      {
+        id: "doc-basic",
+        name: "Basic",
+        price: 29,
+        period: "per month",
+        description: "Get started with professional medical guidance",
+        features: ["Monthly consultation with doctor", "Message support", "Health tracking", "Prescription management"]
+      },
+      {
+        id: "doc-pro",
+        name: "Pro",
+        price: 59,
+        period: "per month",
+        description: "Enhanced medical care and monitoring",
+        features: ["Unlimited consultations", "Priority message support", "Video consultations", "Prescription management", "Health analytics", "Emergency support"]
+      },
+      {
+        id: "doc-premium",
+        name: "Premium",
+        price: 99,
+        period: "per month",
+        description: "Complete personalized medical care",
+        features: ["Unlimited consultations", "24/7 priority support", "Video and in-person consultations", "Full health profile management", "Advanced health analytics", "Emergency hotline", "Specialist referrals"]
+      }
+    ]
+  },
+  {
+    type: "nutritionist",
+    title: "Expert Nutritionists",
+    description: "Get personalized nutrition plans and dietary guidance from certified nutritionists",
+    icon: "apple",
+    rating: 4.7,
+    reviewCount: 198,
+    features: ["Personalized meal plans", "Dietary consultations", "Nutrition tracking", "Weekly check-ins", "Recipe recommendations"],
+    subscriptionPlans: [
+      {
+        id: "nut-basic",
+        name: "Basic",
+        price: 24,
+        period: "per month",
+        description: "Start your nutrition journey",
+        features: ["Monthly nutrition consultation", "Basic meal plan", "Food tracking access", "Nutritionist messaging"]
+      },
+      {
+        id: "nut-pro",
+        name: "Pro",
+        price: 49,
+        period: "per month",
+        description: "Personalized nutrition focused",
+        features: ["Bi-weekly consultations", "Custom meal plans", "Advanced food tracking", "Recipe library access", "Weekly progress reports", "Supplement guidance"]
+      },
+      {
+        id: "nut-premium",
+        name: "Premium",
+        price: 79,
+        period: "per month",
+        description: "Complete nutrition transformation",
+        features: ["Weekly consultations", "Dynamic meal plans", "Advanced tracking and analytics", "Recipe customization", "Daily support", "Supplement recommendations", "Food allergy management", "Weight management program"]
+      }
+    ]
+  },
+  {
+    type: "coach",
+    title: "Fitness Coaches",
+    description: "Work with fitness experts to improve your activity and movement goals",
+    icon: "fitness",
+    rating: 4.6,
+    reviewCount: 160,
+    features: ["Customized workout plans", "Progress tracking", "Live coaching sessions", "Habit building support"],
+    subscriptionPlans: [
+      {
+        id: "coach-basic",
+        name: "Basic",
+        price: 19,
+        period: "per month",
+        description: "Start moving with confidence",
+        features: ["Monthly coaching session", "Beginner workout plan", "Activity check-ins"]
+      },
+      {
+        id: "coach-pro",
+        name: "Pro",
+        price: 39,
+        period: "per month",
+        description: "Structured progress with expert feedback",
+        features: ["Weekly coaching sessions", "Custom workout plans", "Performance tracking", "Nutrition habit tips"]
+      }
+    ]
+  }
+];

@@ -3,16 +3,17 @@ import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  Modal,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  useWindowDimensions,
-  View
+    Animated,
+    Modal,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useWindowDimensions,
+    View
 } from 'react-native';
+import { fetchPatientDashboard, savePatientLog } from '../../services/api';
 
 type SpeechEventName = 'start' | 'result' | 'error' | 'end';
 
@@ -92,6 +93,9 @@ export default function DashboardHome() {
   const [quickLogValue, setQuickLogValue] = useState('');
   const [quickLogNote, setQuickLogNote] = useState('');
   const [quickLogEntries, setQuickLogEntries] = useState<QuickLogEntry[]>([]);
+  const [dashboardMetrics, setDashboardMetrics] = useState<MetricCard[]>([]);
+  const [dashboardActivities, setDashboardActivities] = useState<ActivityItem[]>([]);
+  const [dashboardQuickActions, setDashboardQuickActions] = useState<QuickAction[]>([]);
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -106,6 +110,34 @@ export default function DashboardHome() {
       email: params?.email || 'user@example.com'
     });
   }, [route.params]);
+
+  useEffect(() => {
+    const email = userData?.email;
+    if (!email) {
+      return;
+    }
+
+    let active = true;
+    fetchPatientDashboard(email)
+      .then((response) => {
+        if (!active) return;
+
+        setDashboardMetrics((response.metrics as MetricCard[]) || []);
+        setDashboardActivities((response.recentActivities as ActivityItem[]) || []);
+        setDashboardQuickActions((response.quickActions as QuickAction[]) || []);
+
+        if (response.user?.fullName) {
+          setUserName(response.user.fullName);
+        }
+      })
+      .catch((error) => {
+        console.log('Failed to load patient dashboard:', error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [userData?.email]);
 
   // Pulsating animation
   useEffect(() => {
@@ -310,10 +342,18 @@ export default function DashboardHome() {
     };
 
     setQuickLogEntries((prev) => [newEntry, ...prev]);
+    if (userData?.email) {
+      savePatientLog(userData.email, {
+        type: quickLogType,
+        title: quickLogType,
+        subtitle: quickLogValue.trim(),
+        note: quickLogNote.trim(),
+      }).catch((error) => console.log('Failed to save quick log:', error));
+    }
     handleCloseQuickLog();
   };
-  
-  const metricCards: MetricCard[] = [
+
+  const metricCards: MetricCard[] = dashboardMetrics.length > 0 ? dashboardMetrics : [
     {
       id: '1',
       title: "Today's Calories",
@@ -346,7 +386,7 @@ export default function DashboardHome() {
     },
   ];
 
-  const recentActivities: ActivityItem[] = [
+  const recentActivities: ActivityItem[] = dashboardActivities.length > 0 ? dashboardActivities : [
     {
       id: '1',
       title: 'Logged breakfast - Scrambled eggs',
@@ -377,7 +417,7 @@ export default function DashboardHome() {
     },
   ];
 
-  const quickActions: QuickAction[] = [
+  const quickActions: QuickAction[] = dashboardQuickActions.length > 0 ? dashboardQuickActions : [
     { id: '1', label: 'Log Meal', icon: 'silverware-fork-knife', color: '#F59E0B' },
     { id: '2', label: 'Log Exercise', icon: 'dumbbell', color: '#3B82F6' },
     { id: '3', label: 'Log Vitals', icon: 'heart-pulse', color: '#EF4444' },

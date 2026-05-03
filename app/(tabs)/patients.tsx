@@ -11,6 +11,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { fetchDoctorPatients } from '../../services/api';
 
 interface Patient {
   id: string;
@@ -28,6 +29,7 @@ export default function MyPatientsScreen() {
   const route = useRoute();
   const router = useRouter();
   const [doctorName, setDoctorName] = useState('Doctor');
+  const [doctorEmail, setDoctorEmail] = useState('doctor@example.com');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCondition, setSelectedCondition] = useState('All Conditions');
   const [sortBy, setSortBy] = useState('Sort by Name');
@@ -38,9 +40,36 @@ export default function MyPatientsScreen() {
     const params = route.params as any;
     const name = params?.doctorName || 'Doctor';
     setDoctorName(name);
+    setDoctorEmail(params?.email || 'doctor@example.com');
   }, [route.params]);
 
-  const patients: Patient[] = [
+  const [dashboardPatients, setDashboardPatients] = useState<Patient[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    fetchDoctorPatients(doctorEmail)
+      .then((response) => {
+        if (!active) return;
+        setDashboardPatients((response.patients || []).map((patient: any, index: number) => ({
+          id: patient.id || patient._id || String(index + 1),
+          name: patient.name,
+          age: Number(patient.age || 0),
+          gender: patient.gender,
+          conditions: patient.conditions || [],
+          lastActivity: patient.lastActivity || 'Just now',
+          adherence: Number(patient.adherence || 0),
+          alerts: Number(patient.alerts || 0),
+          trend: patient.trend || 'stable',
+        })));
+      })
+      .catch((error) => console.log('Failed to load patients:', error));
+
+    return () => {
+      active = false;
+    };
+  }, [doctorEmail]);
+
+  const patients: Patient[] = dashboardPatients.length > 0 ? dashboardPatients : [
     {
       id: '1',
       name: 'Ahmed Mohamed',

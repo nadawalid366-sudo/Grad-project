@@ -2,12 +2,12 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  Dimensions,
-  Platform,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Dimensions,
+    Platform,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
 const WINDOW_HEIGHT = Dimensions.get('window').height;
@@ -19,7 +19,7 @@ export default function SplashScreen() {
 
   const handlePatientPress = () => {
     // Navigate to login page
-    router.push('/login');
+    router.push('/(tabs)/login');
   };
 
   const handleProfessionalPress = () => {

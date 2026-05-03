@@ -3,16 +3,17 @@ import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Animated,
-    Modal,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Animated,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
+import { fetchPatientDashboard } from '../../services/api';
 
 interface LogEntry {
   id: string;
@@ -45,6 +46,7 @@ export default function HealthLogs() {
   const [selectedCategory, setSelectedCategory] = useState<FilterType>('all');
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
   const [userData, setUserData] = useState<any>(null);
+  const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
   const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState(false);
   const [voiceAssistantScreen, setVoiceAssistantScreen] = useState<'listening' | 'confirmation'>('listening');
   const [selectedLogType, setSelectedLogType] = useState<string>('');
@@ -63,6 +65,39 @@ export default function HealthLogs() {
       });
     }
   }, [route.params]);
+
+  useEffect(() => {
+    const email = userData?.email;
+    if (!email) {
+      return;
+    }
+
+    let active = true;
+    fetchPatientDashboard(email)
+      .then((response) => {
+        if (!active) return;
+
+        const mappedLogs = (response.logs || []).map((log: any, index: number) => ({
+          id: log.id || log._id || String(index + 1),
+          type: log.type || 'symptom',
+          title: log.title || 'Health Log',
+          subtitle: log.subtitle || '',
+          timestamp: log.timestamp || 'Just now',
+          icon: (log.icon || 'note-text') as keyof typeof MaterialCommunityIcons.glyphMap,
+          color: log.color || '#3B82F6',
+          details: log.details,
+        }));
+
+        setLogEntries(mappedLogs);
+      })
+      .catch((error) => {
+        console.log('Failed to load logs:', error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [userData?.email]);
 
   // Pulsating animation
   useEffect(() => {
@@ -100,8 +135,6 @@ export default function HealthLogs() {
   const handleListeningComplete = () => {
     setVoiceAssistantScreen('confirmation');
   };
-
-  const logEntries: LogEntry[] = [];
 
   const categories = [
     { id: 'all', label: 'All', color: '#9CA3AF' },

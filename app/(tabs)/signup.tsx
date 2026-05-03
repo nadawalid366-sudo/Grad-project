@@ -2,36 +2,43 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
+import { registerUser } from '../../services/api';
 
 export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [language, setLanguage] = useState('en');
   const router = useRouter();
 
-  const handleContinuePress = () => {
-    // Handle account creation
+  const handleContinuePress = async () => {
     if (!email || !phone || !password) {
       alert('Please fill in all fields');
       return;
     }
-    console.log('Account created:', { email, phone, password });
-    // Navigate to verify page with email
-    router.push({ pathname: '/(tabs)/verify', params: { email } });
+
+    try {
+      setIsSubmitting(true);
+      const response = await registerUser({ email, phone, password });
+      router.push({ pathname: '/(tabs)/verify', params: { email: response.email } });
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Failed to create account');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSignInPress = () => {
-    // Navigate back to login page
-    router.push('/login');
+    router.push('/(tabs)/login');
   };
 
   const handleLanguagePress = () => {
@@ -152,8 +159,9 @@ export default function SignUpScreen() {
             style={styles.continueButton}
             onPress={handleContinuePress}
             activeOpacity={0.9}
+            disabled={isSubmitting}
           >
-            <Text style={styles.continueButtonText}>Continue</Text>
+            <Text style={styles.continueButtonText}>{isSubmitting ? 'Creating Account...' : 'Continue'}</Text>
           </TouchableOpacity>
 
           {/* Sign In Link */}

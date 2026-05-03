@@ -16,6 +16,52 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+## Backend setup
+
+A starter Express backend is available in the `backend` folder.
+
+1. Install backend dependencies
+
+   ```bash
+   cd backend
+   npm install
+   ```
+
+2. Create your environment file
+
+   ```bash
+   copy .env.example .env
+   ```
+
+   Set MongoDB in `backend/.env`:
+
+   - `MONGODB_URI` (local or Atlas connection string)
+   - `MONGODB_DB` (database name)
+
+   Optional for frontend app (root `.env`):
+
+   - `EXPO_PUBLIC_API_URL=http://localhost:5000`
+
+3. Run the backend API
+
+   ```bash
+   npm run dev
+   ```
+
+You can also run backend scripts from the project root:
+
+```bash
+npm run backend:dev
+```
+
+Default API URL: `http://localhost:5000`
+
+Available starter routes:
+
+- `GET /`
+- `GET /api/health`
+- `GET /api/v1/ping`
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)

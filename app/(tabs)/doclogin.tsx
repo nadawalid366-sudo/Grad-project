@@ -2,13 +2,14 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
+import { signInDoctor } from '../../services/api';
 
 export default function DoctorLoginScreen() {
   const [doctorName, setDoctorName] = useState('');
@@ -19,17 +20,21 @@ export default function DoctorLoginScreen() {
   const router = useRouter();
 
   const handleSignInPress = () => {
-    // Handle sign in
     if (!doctorName || !email || !password) {
       alert('Please fill in all fields');
       return;
     }
-    console.log('Doctor signed in:', { doctorName, email });
-    // Navigate to doctor dashboard with doctor name
-    router.push({
-      pathname: '/(tabs)/dochome',
-      params: { doctorName }
-    });
+
+    signInDoctor({ email, doctorName, specialty: 'General Practitioner' })
+      .then(() => {
+        router.push({
+          pathname: '/(tabs)/dochome',
+          params: { doctorName, email }
+        });
+      })
+      .catch((error) => {
+        alert(error instanceof Error ? error.message : 'Failed to sign in');
+      });
   };
 
   const handleLanguagePress = () => {

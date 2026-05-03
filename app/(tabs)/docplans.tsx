@@ -3,15 +3,16 @@ import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Modal,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Modal,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
+import { fetchDoctorDashboard, saveDoctorPlan } from '../../services/api';
 
 type PlanStatus = 'Active' | 'Completed' | 'Draft';
 type PlanType = 'Meal Plan' | 'Workout Plan' | 'Medication Plan' | 'Sleep Plan' | 'General Health';
@@ -33,6 +34,7 @@ export default function DocPlansScreen() {
   const route = useRoute();
   const router = useRouter();
   const [doctorName, setDoctorName] = useState('Doctor');
+  const [doctorEmail, setDoctorEmail] = useState('doctor@example.com');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<PlanStatus | 'All'>('All');
   const [selectedType, setSelectedType] = useState<PlanType | 'All'>('All');
@@ -52,7 +54,36 @@ export default function DocPlansScreen() {
     const params = route.params as any;
     const name = params?.doctorName || 'Doctor';
     setDoctorName(name);
+    setDoctorEmail(params?.email || 'doctor@example.com');
   }, [route.params]);
+
+  useEffect(() => {
+    let active = true;
+    fetchDoctorDashboard(doctorEmail)
+      .then((response) => {
+        if (!active) return;
+
+        const mappedPlans = (response.plans || []).map((plan: any, index: number) => ({
+          id: plan.id || plan._id || String(index + 1),
+          patientName: plan.patientName,
+          patientAge: Number(plan.patientAge || 0),
+          planType: plan.planType,
+          status: plan.status,
+          startDate: plan.startDate,
+          endDate: plan.endDate,
+          adherence: Number(plan.adherence || 0),
+          description: plan.description,
+          goals: plan.goals || [],
+        }));
+
+        setAllPlans(mappedPlans);
+      })
+      .catch((error) => console.log('Failed to load doctor plans:', error));
+
+    return () => {
+      active = false;
+    };
+  }, [doctorEmail]);
 
   const [allPlans, setAllPlans] = useState<Plan[]>([
     {
@@ -278,6 +309,18 @@ export default function DocPlansScreen() {
     setAllPlans((prevPlans) =>
       prevPlans.map((plan) => (plan.id === editingPlan.id ? updatedPlan : plan))
     );
+
+    saveDoctorPlan(doctorEmail, {
+      patientName: updatedPlan.patientName,
+      patientAge: updatedPlan.patientAge,
+      planType: updatedPlan.planType,
+      status: updatedPlan.status,
+      startDate: updatedPlan.startDate,
+      endDate: updatedPlan.endDate,
+      adherence: updatedPlan.adherence,
+      description: updatedPlan.description,
+      goals: updatedPlan.goals,
+    }).catch((error) => console.log('Failed to save doctor plan:', error));
 
     setSelectedPlan((prevSelected) =>
       prevSelected && prevSelected.id === editingPlan.id ? updatedPlan : prevSelected

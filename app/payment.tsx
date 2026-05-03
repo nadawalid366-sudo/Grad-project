@@ -11,10 +11,13 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { saveUserSubscription } from '../services/api';
 
 export default function PaymentScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{
+    email?: string;
+    professionalId?: string;
     professionalTitle?: string;
     planName?: string;
     amount?: string;
@@ -31,6 +34,8 @@ export default function PaymentScreen() {
     return Number.isFinite(parsed) ? parsed : 0;
   }, [params.amount]);
 
+  const userEmail = params.email ?? '';
+  const professionalId = params.professionalId ?? '';
   const professionalTitle = params.professionalTitle ?? 'Professional Plan';
   const planName = params.planName ?? 'Selected Plan';
   const period = params.period ?? 'per month';
@@ -47,12 +52,40 @@ export default function PaymentScreen() {
       return;
     }
 
-    Alert.alert('Payment Successful', `You are now subscribed to ${planName}.`, [
-      {
-        text: 'OK',
-        onPress: () => router.back(),
-      },
-    ]);
+    const saveSubscriptionPromise = userEmail
+      ? saveUserSubscription({
+          email: userEmail,
+          subscription: {
+            id: `${professionalTitle}-${planName}`,
+            professionalId: professionalId || null,
+            professionalTitle,
+            planName,
+            amount: amountNumber,
+            period,
+            selectedDoctorName: professionalTitle,
+          },
+        }).catch((error) => {
+          console.log('Failed to save subscription:', error);
+        })
+      : Promise.resolve();
+
+    saveSubscriptionPromise.finally(() => {
+      Alert.alert('Payment Successful', `You are now subscribed to ${planName}.`, [
+        {
+          text: 'Open Messages',
+          onPress: () =>
+            router.replace({
+              pathname: '/(tabs)/messages',
+              params: {
+                email: userEmail,
+                subscribedProfessionalId: professionalId,
+                subscribedProfessionalTitle: professionalTitle,
+                subscribedPlanName: planName,
+              },
+            }),
+        },
+      ]);
+    });
   };
 
   return (

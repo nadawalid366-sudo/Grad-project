@@ -1,6 +1,7 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Dimensions,
     SafeAreaView,
@@ -10,6 +11,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { fetchDoctorAnalytics } from '../../services/api';
 
 const { width } = Dimensions.get('window');
 
@@ -30,11 +32,30 @@ interface ChartData {
 }
 
 export default function Analytics() {
+  const route = useRoute();
   const router = useRouter();
   const [selectedPeriod, setSelectedPeriod] = useState<'week' | 'month' | 'year'>('week');
   const [selectedTab, setSelectedTab] = useState('analytics');
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
 
-  const stats: StatCard[] = [
+  useEffect(() => {
+    const params = route.params as any;
+    const email = params?.email || 'doctor@example.com';
+
+    let active = true;
+    fetchDoctorAnalytics(email)
+      .then((response) => {
+        if (!active) return;
+        setAnalyticsData(response);
+      })
+      .catch((error) => console.log('Failed to load analytics:', error));
+
+    return () => {
+      active = false;
+    };
+  }, [route.params]);
+
+  const stats: StatCard[] = analyticsData?.stats || [
     {
       id: '1',
       title: 'Total Patients',
@@ -73,14 +94,14 @@ export default function Analytics() {
     },
   ];
 
-  const patientsByCondition: ChartData[] = [
+  const patientsByCondition: ChartData[] = analyticsData?.patientsByCondition || [
     { label: 'Diabetes', value: 18, percentage: 37.5 },
     { label: 'Hypertension', value: 15, percentage: 31.25 },
     { label: 'Asthma', value: 8, percentage: 16.67 },
     { label: 'Other', value: 7, percentage: 14.58 },
   ];
 
-  const weeklyActivity: ChartData[] = [
+  const weeklyActivity: ChartData[] = analyticsData?.weeklyActivity || [
     { label: 'Mon', value: 12, percentage: 60 },
     { label: 'Tue', value: 18, percentage: 90 },
     { label: 'Wed', value: 15, percentage: 75 },
@@ -90,7 +111,7 @@ export default function Analytics() {
     { label: 'Sun', value: 5, percentage: 25 },
   ];
 
-  const alertTrends = [
+  const alertTrends = analyticsData?.alertTrends || [
     { severity: 'Critical', count: 8, color: '#EF4444', percentage: 16 },
     { severity: 'High', count: 15, color: '#F59E0B', percentage: 30 },
     { severity: 'Medium', count: 18, color: '#3B82F6', percentage: 36 },

@@ -1,17 +1,18 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Modal,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Modal,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
+import { getUserByEmail, saveUserProfile } from '../../services/api';
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -68,25 +69,67 @@ export default function ProfileSetup() {
   });
   const [allergyInput, setAllergyInput] = useState('');
   const [showGenderModal, setShowGenderModal] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    getUserByEmail(userEmail)
+      .then((response) => {
+        if (!active) return;
+
+        const profile = (response.user.profile || {}) as any;
+        setProfileData((prev) => ({
+          ...prev,
+          fullName: profile.fullName || prev.fullName,
+          age: profile.age || prev.age,
+          gender: profile.gender || prev.gender,
+          height: profile.height || prev.height,
+          weight: profile.weight || prev.weight,
+          medicalConditions: profile.medicalConditions || prev.medicalConditions,
+          allergies: profile.allergies || prev.allergies,
+          healthGoals: profile.healthGoals || prev.healthGoals,
+          language: profile.language || prev.language,
+          units: profile.units || prev.units,
+        }));
+      })
+      .catch((error) => {
+        console.log('Failed to fetch profile:', error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [userEmail]);
 
   const genderOptions = ['Male', 'Female', 'Other'];
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (currentStep < 5) {
       setCurrentStep((prev) => (prev + 1) as Step);
     } else {
-      // Profile complete, navigate to dashboard
-      console.log('Profile completed:', profileData);
-      router.push({
-        pathname: '/(tabs)/home',
-        params: { 
-          fullName: profileData.fullName,
-          age: profileData.age,
-          height: profileData.height,
-          weight: profileData.weight,
-          email: userEmail
-        }
-      });
+      try {
+        setIsSubmitting(true);
+        await saveUserProfile({
+          email: userEmail,
+          profile: profileData,
+        });
+
+        router.push({
+          pathname: '/(tabs)/home',
+          params: {
+            fullName: profileData.fullName,
+            age: profileData.age,
+            height: profileData.height,
+            weight: profileData.weight,
+            email: userEmail,
+          },
+        });
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Failed to save profile');
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -446,9 +489,10 @@ export default function ProfileSetup() {
         <TouchableOpacity
           style={[styles.continueButton, currentStep === 1 && styles.continueButtonFull]}
           onPress={handleContinue}
+          disabled={isSubmitting}
         >
           <Text style={styles.continueButtonText}>
-            {currentStep === 5 ? 'Finish' : 'Continue'}
+            {isSubmitting ? 'Saving...' : currentStep === 5 ? 'Finish' : 'Continue'}
           </Text>
         </TouchableOpacity>
       </View>

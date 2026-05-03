@@ -1,15 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Dimensions,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Dimensions,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
+import { fetchProfessionals } from '../../services/api';
 
 const { width } = Dimensions.get('window');
 
@@ -35,13 +37,44 @@ interface SubscriptionPlan {
 }
 
 export default function FindProfessionals() {
+  const route = useRoute();
   const router = useRouter();
   const [selectedTab, setSelectedTab] = useState('professionals');
+  const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState('user@example.com');
+
+  useEffect(() => {
+    const params = route.params as any;
+    setUserEmail(params?.email || 'user@example.com');
+  }, [route.params]);
+
+  useEffect(() => {
+    const loadProfessionals = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetchProfessionals();
+        const mapped = response.professionals.map((item, index) => ({
+          ...item,
+          id: item.id || item._id || String(index + 1),
+        }));
+        setProfessionals(mapped);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'Failed to load professionals');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadProfessionals();
+  }, []);
 
   const handleSubscribeNow = (professional: Professional, plan: SubscriptionPlan) => {
     router.push({
       pathname: '/payment',
       params: {
+        email: userEmail,
+        professionalId: professional.id,
         professionalTitle: professional.title,
         planName: plan.name,
         amount: String(plan.price),
@@ -50,196 +83,7 @@ export default function FindProfessionals() {
     });
   };
 
-  const professionals: Professional[] = [
-    {
-      id: '1',
-      type: 'doctor',
-      title: 'Professional Doctors',
-      description: 'Consult with licensed medical professionals for your health concerns',
-      icon: 'stethoscope',
-      rating: 4.8,
-      reviewCount: 245,
-      features: [
-        'Direct consultation via messages and video calls',
-        'Access to medical history and prescriptions',
-        'Health monitoring and follow-ups',
-        'Appointment scheduling',
-        'Lab results analysis',
-      ],
-      subscriptionPlans: [
-        {
-          id: 'doc-basic',
-          name: 'Basic',
-          price: 29,
-          period: 'per month',
-          description: 'Get started with professional medical guidance',
-          features: [
-            'Monthly consultation with doctor',
-            'Message support',
-            'Health tracking',
-            'Prescription management',
-          ],
-        },
-        {
-          id: 'doc-pro',
-          name: 'Pro',
-          price: 59,
-          period: 'per month',
-          description: 'Enhanced medical care and monitoring',
-          features: [
-            'Unlimited consultations',
-            'Priority message support',
-            'Video consultations',
-            'Prescription management',
-            'Health analytics',
-            'Emergency support',
-          ],
-        },
-        {
-          id: 'doc-premium',
-          name: 'Premium',
-          price: 99,
-          period: 'per month',
-          description: 'Complete personalized medical care',
-          features: [
-            'Unlimited consultations',
-            ' 24/7 priority support',
-            'Video & in-person consultations',
-            'Full health profile management',
-            'Advanced health analytics',
-            'Emergency hotline',
-            'Specialist referrals',
-          ],
-        },
-      ],
-    },
-    {
-      id: '2',
-      type: 'nutritionist',
-      title: 'Expert Nutritionists',
-      description: 'Get personalized nutrition plans and dietary guidance from certified nutritionists',
-      icon: 'apple',
-      rating: 4.7,
-      reviewCount: 198,
-      features: [
-        'Personalized meal plans',
-        'Dietary consultations',
-        'Nutrition tracking',
-        'Weekly check-ins',
-        'Recipe recommendations',
-      ],
-      subscriptionPlans: [
-        {
-          id: 'nut-basic',
-          name: 'Basic',
-          price: 24,
-          period: 'per month',
-          description: 'Start your nutrition journey',
-          features: [
-            'Monthly nutrition consultation',
-            'Basic meal plan',
-            'Food tracking access',
-            'Nutritionist messaging',
-          ],
-        },
-        {
-          id: 'nut-pro',
-          name: 'Pro',
-          price: 49,
-          period: 'per month',
-          description: 'Personalized nutrition focused',
-          features: [
-            'Bi-weekly consultations',
-            'Custom meal plans',
-            'Advanced food tracking',
-            'Recipe library access',
-            'Weekly progress reports',
-            'Supplement guidance',
-          ],
-        },
-        {
-          id: 'nut-premium',
-          name: 'Premium',
-          price: 79,
-          period: 'per month',
-          description: 'Complete nutrition transformation',
-          features: [
-            'Weekly consultations',
-            'Dynamic meal plans',
-            'Advanced tracking & analytics',
-            'Recipe customization',
-            'Daily support',
-            'Supplement recommendations',
-            'Food allergy management',
-            'Weight management program',
-          ],
-        },
-      ],
-    },
-    {
-      id: '3',
-      type: 'coach',
-      title: 'Fitness Coaches',
-      description: 'Get fit with personalized workout plans and training guidance from certified coaches',
-      icon: 'dumbbell',
-      rating: 4.9,
-      reviewCount: 312,
-      features: [
-        'Customized workout plans',
-        'Fitness tracking',
-        'Form correction',
-        'Progress monitoring',
-        'Motivation support',
-      ],
-      subscriptionPlans: [
-        {
-          id: 'coach-basic',
-          name: 'Basic',
-          price: 19,
-          period: 'per month',
-          description: 'Begin your fitness journey',
-          features: [
-            'Monthly coaching session',
-            'Basic workout plan',
-            'Fitness tracking',
-            'Message support',
-          ],
-        },
-        {
-          id: 'coach-pro',
-          name: 'Pro',
-          price: 44,
-          period: 'per month',
-          description: 'Intensive fitness training',
-          features: [
-            'Bi-weekly sessions',
-            'Personalized workout plans',
-            'Advanced tracking',
-            'Video form correction',
-            'Weekly progress analysis',
-            'Exercise library access',
-          ],
-        },
-        {
-          id: 'coach-premium',
-          name: 'Premium',
-          price: 74,
-          period: 'per month',
-          description: 'Elite fitness coaching',
-          features: [
-            'Weekly 1-on-1 sessions',
-            'Dynamic workout plans',
-            'Real-time video coaching',
-            'Advanced analytics',
-            'Nutrition coordination',
-            'Injury prevention',
-            'Goal achievement program',
-            'Priority support',
-          ],
-        },
-      ],
-    },
-  ];
+  
 
   const getProfessionalInitials = (title: string) => {
     const parts = title.split(/\s+/).filter(Boolean);
@@ -342,7 +186,7 @@ export default function FindProfessionals() {
         </View>
 
         {/* Professional Cards */}
-        {professionals.map((professional) => renderProfessionalCard(professional))}
+        {isLoading ? <Text style={styles.loadingText}>Loading professionals...</Text> : professionals.map((professional) => renderProfessionalCard(professional))}
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -351,7 +195,7 @@ export default function FindProfessionals() {
       <View style={styles.bottomNavigation}>
         <TouchableOpacity 
           style={styles.navItem}
-          onPress={() => router.push('/(tabs)/home')}
+          onPress={() => router.push({ pathname: '/(tabs)/home', params: { email: userEmail } })}
         >
           <Ionicons 
             name="home" 
@@ -366,7 +210,7 @@ export default function FindProfessionals() {
 
         <TouchableOpacity 
           style={styles.navItem}
-          onPress={() => router.push('/(tabs)/logs')}
+          onPress={() => router.push({ pathname: '/(tabs)/logs', params: { email: userEmail } })}
         >
           <Ionicons 
             name="document-text" 
@@ -381,7 +225,7 @@ export default function FindProfessionals() {
 
         <TouchableOpacity 
           style={styles.navItem}
-          onPress={() => router.push('/(tabs)/plans')}
+          onPress={() => router.push({ pathname: '/(tabs)/plans', params: { email: userEmail } })}
         >
           <Ionicons 
             name="calendar" 
@@ -396,7 +240,7 @@ export default function FindProfessionals() {
 
         <TouchableOpacity 
           style={styles.navItem}
-          onPress={() => router.push('/(tabs)/messages')}
+          onPress={() => router.push({ pathname: '/(tabs)/messages', params: { email: userEmail } })}
         >
           <Ionicons 
             name="chatbubble" 
@@ -411,7 +255,7 @@ export default function FindProfessionals() {
 
         <TouchableOpacity 
           style={styles.navItem}
-          onPress={() => router.push('/(tabs)/prof')}
+          onPress={() => router.push({ pathname: '/(tabs)/prof', params: { email: userEmail } })}
         >
           <Ionicons 
             name="person" 
@@ -471,6 +315,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#0E7490',
     lineHeight: 20,
+  },
+  loadingText: {
+    textAlign: 'center',
+    color: '#2563EB',
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 18,
   },
   professionalCard: {
     backgroundColor: '#FFFFFF',
