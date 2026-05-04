@@ -205,6 +205,22 @@ export type PatientDashboard = {
   professionals: Array<Record<string, unknown>>;
 };
 
+export type DashboardLog = {
+  _id?: string;
+  id?: string;
+  email?: string;
+  type?: string;
+  title?: string;
+  subtitle?: string;
+  note?: string;
+  timestamp?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  calories?: number;
+  activity_minutes?: number;
+  blood_pressure?: number;
+};
+
 export type DoctorDashboard = {
   doctor: Record<string, unknown>;
   metrics: Array<Record<string, unknown>>;
@@ -222,6 +238,11 @@ export type DoctorDashboard = {
 
 export async function fetchPatientDashboard(email: string) {
   return apiRequest<PatientDashboard>(`/api/v1/dashboard/patient/${encodeURIComponent(email)}`);
+}
+
+export async function fetchDashboardStats(email?: string) {
+  const query = email ? `?email=${encodeURIComponent(email)}` : '';
+  return apiRequest<DashboardLog[]>(`/api/dashboard-stats${query}`);
 }
 
 export async function savePatientLog(email: string, payload: { type: string; title: string; subtitle?: string; note?: string }) {

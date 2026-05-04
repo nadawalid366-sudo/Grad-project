@@ -21,6 +21,32 @@ async function insertIfEmpty(collectionName, docs) {
   }
 }
 
+function normalizeLogType(type = '', title = '', subtitle = '', note = '') {
+  const value = `${type} ${title} ${subtitle} ${note}`.toLowerCase();
+
+  if (value.includes('meal') || value.includes('food') || value.includes('breakfast') || value.includes('lunch') || value.includes('dinner') || value.includes('snack')) {
+    return 'meal';
+  }
+
+  if (value.includes('exercise') || value.includes('workout') || value.includes('walk') || value.includes('run') || value.includes('jog') || value.includes('activity')) {
+    return 'exercise';
+  }
+
+  if (value.includes('vital') || value.includes('blood pressure') || value.includes('bp') || value.includes('glucose') || value.includes('pulse') || value.includes('heart rate')) {
+    return 'vitals';
+  }
+
+  if (value.includes('medication') || value.includes('medicine') || value.includes('pill') || value.includes('dose') || value.includes('tablet')) {
+    return 'medication';
+  }
+
+  if (value.includes('symptom') || value.includes('pain') || value.includes('headache') || value.includes('nausea') || value.includes('fever') || value.includes('cough')) {
+    return 'symptom';
+  }
+
+  return 'symptom';
+}
+
 router.get('/patient/:email', async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
@@ -69,10 +95,11 @@ router.post('/patient/:email/logs', async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
     const { type, title, subtitle, note } = req.body;
+    const normalizedType = normalizeLogType(type, title, subtitle, note);
     const db = await getDb();
     const result = await db.collection('patientLogs').insertOne({
       email,
-      type,
+      type: normalizedType,
       title,
       subtitle: subtitle || note || '',
       note: note || '',

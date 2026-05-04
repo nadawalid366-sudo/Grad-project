@@ -38,6 +38,42 @@ interface LogEntry {
 }
 
 type FilterType = 'all' | 'meal' | 'exercise' | 'vitals' | 'symptom' | 'medication';
+type LogCategory = Exclude<FilterType, 'all'>;
+
+const sectionOrder: LogCategory[] = ['meal', 'exercise', 'vitals', 'medication', 'symptom'];
+const sectionLabels: Record<LogCategory, string> = {
+  meal: 'Meals',
+  exercise: 'Exercise',
+  vitals: 'Vitals',
+  symptom: 'Symptoms',
+  medication: 'Medications',
+};
+
+function normalizeLogType(type: string, title = '', subtitle = ''): LogCategory {
+  const value = `${type} ${title} ${subtitle}`.toLowerCase();
+
+  if (value.includes('meal') || value.includes('food') || value.includes('breakfast') || value.includes('lunch') || value.includes('dinner') || value.includes('snack')) {
+    return 'meal';
+  }
+
+  if (value.includes('exercise') || value.includes('workout') || value.includes('walk') || value.includes('run') || value.includes('jog') || value.includes('activity')) {
+    return 'exercise';
+  }
+
+  if (value.includes('vital') || value.includes('blood pressure') || value.includes('bp') || value.includes('glucose') || value.includes('pulse') || value.includes('heart rate')) {
+    return 'vitals';
+  }
+
+  if (value.includes('medication') || value.includes('medicine') || value.includes('pill') || value.includes('dose') || value.includes('tablet')) {
+    return 'medication';
+  }
+
+  if (value.includes('symptom') || value.includes('pain') || value.includes('headache') || value.includes('nausea') || value.includes('fever') || value.includes('cough')) {
+    return 'symptom';
+  }
+
+  return 'symptom';
+}
 
 export default function HealthLogs() {
   const route = useRoute();
@@ -77,16 +113,59 @@ export default function HealthLogs() {
       .then((response) => {
         if (!active) return;
 
-        const mappedLogs = (response.logs || []).map((log: any, index: number) => ({
-          id: log.id || log._id || String(index + 1),
-          type: log.type || 'symptom',
-          title: log.title || 'Health Log',
-          subtitle: log.subtitle || '',
-          timestamp: log.timestamp || 'Just now',
-          icon: (log.icon || 'note-text') as keyof typeof MaterialCommunityIcons.glyphMap,
-          color: log.color || '#3B82F6',
-          details: log.details,
-        }));
+        const mappedLogs = (response.logs || []).map(
+          (log: Record<string, any>, index: number) => {
+            const type = normalizeLogType(String(log.type || ''), String(log.title || ''), String(log.subtitle || log.note || ''));
+            const subtitle = String(log.subtitle || log.note || '');
+            const details =
+              type === 'meal'
+                ? { calories: Number(log.calories ?? 0) }
+                : type === 'exercise'
+                  ? { duration: subtitle || '30 min', calories: Number(log.calories ?? 0), distance: String(log.distance || '') }
+                  : type === 'vitals'
+                    ? {
+                        reading: String(log.blood_pressure ?? (subtitle || 'No reading')),
+                        status: String(log.status || 'Recorded'),
+                        trend: String(log.trend || 'Stable'),
+                      }
+                    : type === 'medication'
+                      ? { dosage: subtitle || 'Taken as prescribed', status: String(log.status || 'Completed') }
+                      : { status: subtitle || 'Logged' };
+
+            return {
+              id: String(log.id || log._id || index + 1),
+              type,
+              title: String(log.title || 'Health Log'),
+              subtitle,
+              timestamp: String(log.timestamp || 'Just now'),
+              icon: (
+                log.icon ||
+                (type === 'meal'
+                  ? 'food-fork-drink'
+                  : type === 'exercise'
+                    ? 'walk'
+                    : type === 'medication'
+                      ? 'pill'
+                      : type === 'vitals'
+                        ? 'heart-pulse'
+                        : 'note-text')
+              ) as keyof typeof MaterialCommunityIcons.glyphMap,
+              color: String(
+                log.color ||
+                  (type === 'meal'
+                    ? '#F59E0B'
+                    : type === 'exercise'
+                      ? '#3B82F6'
+                      : type === 'medication'
+                        ? '#EC4899'
+                        : type === 'vitals'
+                          ? '#EF4444'
+                          : '#8B5CF6')
+              ),
+              details,
+            };
+          }
+        );
 
         setLogEntries(mappedLogs);
       })
@@ -152,6 +231,14 @@ export default function HealthLogs() {
       entry.subtitle.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
   });
+
+  const visibleSections: LogCategory[] = selectedCategory === 'all' ? sectionOrder : [selectedCategory];
+  const groupedEntries = visibleSections
+    .map((type) => ({
+      type,
+      entries: filteredEntries.filter((entry) => entry.type === type),
+    }))
+    .filter((section) => section.entries.length > 0);
 
   const renderLogEntry = (entry: LogEntry) => {
     const isExpanded = expandedEntryId === entry.id;
@@ -328,8 +415,13 @@ export default function HealthLogs() {
 
         {/* Log Entries */}
         <View style={styles.logsList}>
-          {filteredEntries.length > 0 ? (
-            filteredEntries.map(renderLogEntry)
+          {groupedEntries.length > 0 ? (
+            groupedEntries.map((section) => (
+              <View key={section.type} style={styles.logSection}>
+                <Text style={styles.logSectionTitle}>{sectionLabels[section.type]}</Text>
+                {section.entries.map(renderLogEntry)}
+              </View>
+            ))
           ) : (
             <View style={styles.emptyState}>
               <MaterialCommunityIcons name="inbox" size={48} color="#D1D5DB" />
@@ -540,6 +632,16 @@ const styles = StyleSheet.create({
   },
   logsList: {
     paddingHorizontal: 16,
+  },
+  logSection: {
+    marginBottom: 12,
+  },
+  logSectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+    marginTop: 4,
   },
   logCard: {
     backgroundColor: '#FFFFFF',

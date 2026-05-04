@@ -15,6 +15,7 @@ export const patientDashboardSeed = {
     { id: '2', label: 'Log Exercise', icon: 'dumbbell', color: '#3B82F6' },
     { id: '3', label: 'Log Vitals', icon: 'heart-pulse', color: '#EF4444' },
     { id: '4', label: 'Log Symptom', icon: 'emoticon-sad-outline', color: '#8B5CF6' },
+    { id: '5', label: 'Log Medication', icon: 'pill', color: '#EC4899' },
   ],
   logs: [],
   plans: [],
