@@ -1,28 +1,25 @@
 import Constants from 'expo-constants';
 
 function resolveApiBaseUrl() {
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
+  const constantsAny = Constants as unknown as {
+    expoConfig?: { extra?: { EXPO_PUBLIC_API_URL?: string }; hostUri?: string };
+    manifest2?: { extra?: { EXPO_PUBLIC_API_URL?: string; expoGo?: { debuggerHost?: string } } };
+    manifest?: { extra?: { EXPO_PUBLIC_API_URL?: string }; debuggerHost?: string };
+  };
 
-  // Expo's runtime config may expose the public API URL under `expoConfig.extra` or manifest extras.
+  // Try Expo constants first (runtime), then process.env (build time)
   const expoExtraUrl =
     constantsAny.expoConfig?.extra?.EXPO_PUBLIC_API_URL ||
     constantsAny.manifest2?.extra?.EXPO_PUBLIC_API_URL ||
-    (constantsAny.manifest as any)?.extra?.EXPO_PUBLIC_API_URL;
+    (constantsAny.manifest as any)?.extra?.EXPO_PUBLIC_API_URL ||
+    process.env.EXPO_PUBLIC_API_URL;
 
   if (expoExtraUrl) return expoExtraUrl;
-
-  const constantsAny = Constants as unknown as {
-    expoConfig?: { hostUri?: string };
-    manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } };
-    manifest?: { debuggerHost?: string };
-  };
 
   const hostFromExpo =
     constantsAny.expoConfig?.hostUri ||
     constantsAny.manifest2?.extra?.expoGo?.debuggerHost ||
-    constantsAny.manifest?.debuggerHost;
+    (constantsAny.manifest as any)?.debuggerHost;
 
   if (hostFromExpo) {
     const hostIp = hostFromExpo.split(':')[0];
