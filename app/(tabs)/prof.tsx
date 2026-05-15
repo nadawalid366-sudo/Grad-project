@@ -1,50 +1,106 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
+import { getUserByEmail } from '../../services/api';
+
+type ProfileDetailsSection = 'personal-information' | 'medical-history' | 'allergies';
+type SettingsSection = 'notifications' | 'language-region' | 'privacy-security' | 'help-support';
+
+type UserInfo = {
+  fullName: string;
+  email: string;
+  age: string;
+  height: string;
+  weight: string;
+  medicalConditions: string[];
+  allergies: string[];
+  healthGoals: string[];
+};
 
 export default function ProfileSettings() {
-  const route = useRoute();
   const router = useRouter();
-  const params = route.params as any;
-  
-  const [userInfo, setUserInfo] = useState({
-    name: params?.fullName || 'User Name',
-    email: params?.email || 'user@example.com',
-    age: params?.age || 'Not set',
-    height: params?.height || 'Not set',
-    weight: params?.weight || 'Not set',
-  });
+  const params = useLocalSearchParams<{
+    email?: string;
+    fullName?: string;
+    age?: string;
+    height?: string;
+    weight?: string;
+  }>();
 
-  const [userData, setUserData] = useState<any>(null);
+  const getParamValue = (value?: string | string[]) => (Array.isArray(value) ? value[0] : value);
+  const userEmail = getParamValue(params.email);
+  const displayEmail = userEmail || 'user@example.com';
+
+  const [userData, setUserData] = useState<UserInfo>(() => ({
+    fullName: getParamValue(params.fullName) || 'User Name',
+    email: displayEmail,
+    age: getParamValue(params.age) || 'Not set',
+    height: getParamValue(params.height) || 'Not set',
+    weight: getParamValue(params.weight) || 'Not set',
+    medicalConditions: [],
+    allergies: [],
+    healthGoals: [],
+  }));
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
 
   useEffect(() => {
-    if (params) {
-      setUserInfo({
-        name: params?.fullName || 'User Name',
-        email: params?.email || 'user@example.com',
-        age: params?.age || 'Not set',
-        height: params?.height || 'Not set',
-        weight: params?.weight || 'Not set',
-      });
-      setUserData({
-        fullName: params?.fullName || 'User Name',
-        age: params?.age || '',
-        height: params?.height || '',
-        weight: params?.weight || '',
-        email: params?.email || 'user@example.com'
-      });
+    let active = true;
+
+    setUserData((prev) => ({
+      ...prev,
+      fullName: getParamValue(params.fullName) || prev.fullName,
+      email: displayEmail,
+      age: getParamValue(params.age) || prev.age,
+      height: getParamValue(params.height) || prev.height,
+      weight: getParamValue(params.weight) || prev.weight,
+    }));
+
+    if (!userEmail) {
+      return () => {
+        active = false;
+      };
     }
-  }, [params]);
+
+    setIsLoadingProfile(true);
+    getUserByEmail(userEmail)
+      .then((response) => {
+        if (!active) return;
+
+        const profile = (response.user.profile || {}) as Record<string, any>;
+        setUserData((prev) => ({
+          ...prev,
+          fullName: profile.fullName || prev.fullName,
+          email: response.user.email || prev.email,
+          age: profile.age || prev.age,
+          height: profile.height || prev.height,
+          weight: profile.weight || prev.weight,
+          medicalConditions: Array.isArray(profile.medicalConditions) ? profile.medicalConditions : prev.medicalConditions,
+          allergies: Array.isArray(profile.allergies) ? profile.allergies : prev.allergies,
+          healthGoals: Array.isArray(profile.healthGoals) ? profile.healthGoals : prev.healthGoals,
+        }));
+      })
+      .catch((error) => {
+        console.log('Failed to load profile:', error);
+      })
+      .finally(() => {
+        if (active) {
+          setIsLoadingProfile(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [params.age, params.email, params.fullName, params.height, params.weight, userEmail]);
 
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
 
@@ -186,6 +242,31 @@ export default function ProfileSettings() {
     setExpandedSection(expandedSection === section ? null : section);
   };
 
+  const openProfileDetail = (section: ProfileDetailsSection) => {
+    router.push({
+      pathname: '/profile-detail' as any,
+      params: {
+        section,
+        email: userData.email,
+        fullName: userData.fullName,
+        age: userData.age,
+        height: userData.height,
+        weight: userData.weight,
+      },
+    });
+  };
+
+  const openSettingsDetail = (section: SettingsSection) => {
+    router.push({
+      pathname: '/settings-detail' as any,
+      params: {
+        section,
+        email: userData.email,
+        fullName: userData.fullName,
+      },
+    });
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView 
@@ -199,23 +280,26 @@ export default function ProfileSettings() {
               <Ionicons name="person" size={32} color="#3B82F6" />
             </View>
             <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{userInfo.name}</Text>
-              <Text style={styles.profileEmail}>{userInfo.email}</Text>
+              <Text style={styles.profileName}>{userData.fullName}</Text>
+              <Text style={styles.profileEmail}>{isLoadingProfile ? 'Loading profile...' : userData.email}</Text>
             </View>
-            <TouchableOpacity style={styles.editButton}>
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={() => router.push({ pathname: '/(tabs)/profile', params: { email: displayEmail } })}
+            >
               <Text style={styles.editButtonText}>Edit Profile</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.profileStats}>
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Age: {userInfo.age}</Text>
+              <Text style={styles.statLabel}>Age: {userData.age}</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Height: {userInfo.height}</Text>
+              <Text style={styles.statLabel}>Height: {userData.height}</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statLabel}>Weight: {userInfo.weight}</Text>
+              <Text style={styles.statLabel}>Weight: {userData.weight}</Text>
             </View>
           </View>
         </View>
@@ -229,7 +313,7 @@ export default function ProfileSettings() {
             title="Personal Information"
             iconColor="#3B82F6"
             iconBg="#DBEAFE"
-            onPress={() => console.log('Personal Information pressed')}
+            onPress={() => openProfileDetail('personal-information')}
           />
           
           <ProfileDetailsItem
@@ -237,7 +321,7 @@ export default function ProfileSettings() {
             title="Medical History"
             iconColor="#EC4899"
             iconBg="#FCE7F3"
-            onPress={() => console.log('Medical History pressed')}
+            onPress={() => openProfileDetail('medical-history')}
           />
           
           <ProfileDetailsItem
@@ -245,7 +329,7 @@ export default function ProfileSettings() {
             title="Allergies & Intolerances"
             iconColor="#EF4444"
             iconBg="#FEE2E2"
-            onPress={() => console.log('Allergies pressed')}
+            onPress={() => openProfileDetail('allergies')}
           />
           
           <TouchableOpacity 
@@ -299,28 +383,28 @@ export default function ProfileSettings() {
             title="Notifications"
             iconColor="#F59E0B"
             iconBg="#FEF3C7"
-            onPress={() => console.log('Notifications pressed')}
+            onPress={() => openSettingsDetail('notifications')}
           />
           <SettingsItem
             icon="globe-outline"
             title="Language & Region"
             iconColor="#3B82F6"
             iconBg="#DBEAFE"
-            onPress={() => console.log('Language & Region pressed')}
+            onPress={() => openSettingsDetail('language-region')}
           />
           <SettingsItem
             icon="shield-checkmark-outline"
             title="Privacy & Security"
             iconColor="#EC4899"
             iconBg="#FCE7F3"
-            onPress={() => console.log('Privacy & Security pressed')}
+            onPress={() => openSettingsDetail('privacy-security')}
           />
           <SettingsItem
             icon="help-circle-outline"
             title="Help & Support"
             iconColor="#10B981"
             iconBg="#D1FAE5"
-            onPress={() => console.log('Help & Support pressed')}
+            onPress={() => openSettingsDetail('help-support')}
           />
         </View>
 

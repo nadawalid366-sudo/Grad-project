@@ -5,6 +5,12 @@ function resolveApiBaseUrl() {
     return process.env.EXPO_PUBLIC_API_URL;
   }
 
+  const constantsAny = Constants as unknown as {
+    expoConfig?: { hostUri?: string; extra?: { EXPO_PUBLIC_API_URL?: string } };
+    manifest2?: { extra?: { EXPO_PUBLIC_API_URL?: string; expoGo?: { debuggerHost?: string } } };
+    manifest?: { extra?: { EXPO_PUBLIC_API_URL?: string }; debuggerHost?: string };
+  };
+
   // Expo's runtime config may expose the public API URL under `expoConfig.extra` or manifest extras.
   const expoExtraUrl =
     constantsAny.expoConfig?.extra?.EXPO_PUBLIC_API_URL ||
@@ -12,12 +18,6 @@ function resolveApiBaseUrl() {
     (constantsAny.manifest as any)?.extra?.EXPO_PUBLIC_API_URL;
 
   if (expoExtraUrl) return expoExtraUrl;
-
-  const constantsAny = Constants as unknown as {
-    expoConfig?: { hostUri?: string };
-    manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } };
-    manifest?: { debuggerHost?: string };
-  };
 
   const hostFromExpo =
     constantsAny.expoConfig?.hostUri ||
