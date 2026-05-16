@@ -13,7 +13,7 @@ import {
     useWindowDimensions,
     View
 } from 'react-native';
-import { fetchPatientDashboard, savePatientLog } from '../../services/api';
+import { fetchDashboardStats, fetchPatientDashboard, savePatientLog } from '../../services/api';
 
 type SpeechEventName = 'start' | 'result' | 'error' | 'end';
 
@@ -118,13 +118,67 @@ export default function DashboardHome() {
     }
 
     let active = true;
-    fetchPatientDashboard(email)
-      .then((response) => {
+    Promise.all([
+      fetchPatientDashboard(email),
+      fetchDashboardStats(email).catch(() => []),
+    ])
+      .then(([response, latestLogs]) => {
         if (!active) return;
 
-        setDashboardMetrics((response.metrics as MetricCard[]) || []);
-        setDashboardActivities((response.recentActivities as ActivityItem[]) || []);
-        setDashboardQuickActions((response.quickActions as QuickAction[]) || []);
+        const mappedMetrics: MetricCard[] = (response.metrics || []).map((metric: Record<string, any>, index: number) => ({
+          id: String(metric.id || index + 1),
+          title: String(metric.title || 'Metric'),
+          current: Number(metric.current ?? metric.value ?? 0),
+          goal: Number(metric.goal ?? 100),
+          unit: String(metric.unit || ''),
+          icon: String(metric.icon || 'chart-bar'),
+          color: String(metric.color || '#3B82F6'),
+          backgroundColor: String(metric.backgroundColor || '#DBEAFE'),
+        }));
+
+        const mappedQuickActions: QuickAction[] = (response.quickActions || []).map((action: Record<string, any>, index: number) => ({
+          id: String(action.id || index + 1),
+          label: String(action.label || 'Action'),
+          icon: String(action.icon || 'circle'),
+          color: String(action.color || '#3B82F6'),
+        }));
+
+        setDashboardMetrics(mappedMetrics);
+        setDashboardQuickActions(mappedQuickActions);
+
+        const mappedActivities: ActivityItem[] = (latestLogs || []).map((log: any, index: number) => ({
+          id: log.id || log._id || String(index + 1),
+          title: log.title || log.subtitle || log.note || 'Health log',
+          timeAgo: log.timestamp || 'Just now',
+          icon:
+            log.type === 'meal'
+              ? 'food-fork-drink'
+              : log.type === 'exercise'
+                ? 'walk'
+                : log.type === 'medication'
+                  ? 'pill'
+                  : 'heart-pulse',
+          color:
+            log.type === 'meal'
+              ? '#F59E0B'
+              : log.type === 'exercise'
+                ? '#3B82F6'
+                : log.type === 'medication'
+                  ? '#EC4899'
+                  : '#EF4444',
+        }));
+
+        setDashboardActivities(
+          mappedActivities.length > 0
+            ? mappedActivities
+            : (response.recentActivities || []).map((item: Record<string, any>, index: number) => ({
+                id: String(item.id || index + 1),
+                title: String(item.title || 'Activity'),
+                timeAgo: String(item.timeAgo || 'Just now'),
+                icon: String(item.icon || 'heart-pulse') as ActivityItem['icon'],
+                color: String(item.color || '#EF4444'),
+              }))
+        );
 
         if (response.user?.fullName) {
           setUserName(response.user.fullName);
@@ -304,6 +358,8 @@ export default function DashboardHome() {
         return 'Exercise and duration (e.g. Walking 30 min)';
       case 'Log Vitals':
         return 'Vital reading (e.g. BP 120/80 or glucose 105)';
+      case 'Log Medication':
+        return 'Medication name and dose (e.g. Metformin 500mg)';
       case 'Log Symptom':
         return 'Symptom (e.g. Headache, mild)';
       default:
@@ -330,6 +386,16 @@ export default function DashboardHome() {
       return;
     }
 
+    const normalizedLogType = (() => {
+      const value = quickLogType.toLowerCase();
+      if (value.includes('meal')) return 'meal';
+      if (value.includes('exercise')) return 'exercise';
+      if (value.includes('vitals')) return 'vitals';
+      if (value.includes('medication')) return 'medication';
+      if (value.includes('symptom')) return 'symptom';
+      return 'symptom';
+    })();
+
     const newEntry: QuickLogEntry = {
       id: Date.now().toString(),
       type: quickLogType,
@@ -344,9 +410,9 @@ export default function DashboardHome() {
     setQuickLogEntries((prev) => [newEntry, ...prev]);
     if (userData?.email) {
       savePatientLog(userData.email, {
-        type: quickLogType,
-        title: quickLogType,
-        subtitle: quickLogValue.trim(),
+        type: normalizedLogType,
+        title: quickLogValue.trim(),
+        subtitle: quickLogNote.trim() || quickLogValue.trim(),
         note: quickLogNote.trim(),
       }).catch((error) => console.log('Failed to save quick log:', error));
     }
@@ -422,6 +488,7 @@ export default function DashboardHome() {
     { id: '2', label: 'Log Exercise', icon: 'dumbbell', color: '#3B82F6' },
     { id: '3', label: 'Log Vitals', icon: 'heart-pulse', color: '#EF4444' },
     { id: '4', label: 'Log Symptom', icon: 'emoticon-sad-outline', color: '#8B5CF6' },
+    { id: '5', label: 'Log Medication', icon: 'pill', color: '#EC4899' },
   ];
 
   const isCompact = screenHeight < 780;

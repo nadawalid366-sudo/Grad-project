@@ -1,24 +1,35 @@
 import Constants from 'expo-constants';
 
 function resolveApiBaseUrl() {
-  if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
-  }
-
   const constantsAny = Constants as unknown as {
-    expoConfig?: { hostUri?: string; extra?: { EXPO_PUBLIC_API_URL?: string } };
-    manifest2?: { extra?: { EXPO_PUBLIC_API_URL?: string; expoGo?: { debuggerHost?: string } } };
-    manifest?: { extra?: { EXPO_PUBLIC_API_URL?: string }; debuggerHost?: string };
+    expoConfig?: {
+      hostUri?: string;
+      extra?: { EXPO_PUBLIC_API_URL?: string };
+    };
+    manifest2?: {
+      extra?: {
+        EXPO_PUBLIC_API_URL?: string;
+        expoGo?: { debuggerHost?: string };
+      };
+    };
+    manifest?: {
+      extra?: { EXPO_PUBLIC_API_URL?: string };
+      debuggerHost?: string;
+    };
   };
 
-  // Expo's runtime config may expose the public API URL under `expoConfig.extra` or manifest extras.
+  // Try Expo runtime config first, then environment variable
   const expoExtraUrl =
     constantsAny.expoConfig?.extra?.EXPO_PUBLIC_API_URL ||
     constantsAny.manifest2?.extra?.EXPO_PUBLIC_API_URL ||
-    (constantsAny.manifest as any)?.extra?.EXPO_PUBLIC_API_URL;
+    constantsAny.manifest?.extra?.EXPO_PUBLIC_API_URL ||
+    process.env.EXPO_PUBLIC_API_URL;
 
-  if (expoExtraUrl) return expoExtraUrl;
+  if (expoExtraUrl) {
+    return expoExtraUrl;
+  }
 
+  // Detect Expo host IP automatically
   const hostFromExpo =
     constantsAny.expoConfig?.hostUri ||
     constantsAny.manifest2?.extra?.expoGo?.debuggerHost ||
@@ -150,14 +161,19 @@ export async function saveUserSubscription(payload: {
     selectedDoctorName?: string | null;
   };
 }) {
-  return apiRequest<{ message: string; subscription: UserSubscription }>('/api/v1/users/subscriptions', {
-    method: 'POST',
-    body: payload,
-  });
+  return apiRequest<{ message: string; subscription: UserSubscription }>(
+    '/api/v1/users/subscriptions',
+    {
+      method: 'POST',
+      body: payload,
+    }
+  );
 }
 
 export async function fetchUserSubscriptions(email: string) {
-  return apiRequest<{ subscriptions: UserSubscription[] }>(`/api/v1/users/${encodeURIComponent(email)}/subscriptions`);
+  return apiRequest<{ subscriptions: UserSubscription[] }>(
+    `/api/v1/users/${encodeURIComponent(email)}/subscriptions`
+  );
 }
 
 export type Professional = {
@@ -185,9 +201,14 @@ export async function fetchProfessionals() {
 }
 
 export async function getUserByEmail(email: string) {
-  return apiRequest<{ user: { email: string; phone?: string; isVerified?: boolean; profile?: Record<string, unknown> } }>(
-    `/api/v1/users/${encodeURIComponent(email)}`
-  );
+  return apiRequest<{
+    user: {
+      email: string;
+      phone?: string;
+      isVerified?: boolean;
+      profile?: Record<string, unknown>;
+    };
+  }>(`/api/v1/users/${encodeURIComponent(email)}`);
 }
 
 export type PatientDashboard = {
@@ -208,6 +229,22 @@ export type PatientDashboard = {
   professionals: Array<Record<string, unknown>>;
 };
 
+export type DashboardLog = {
+  _id?: string;
+  id?: string;
+  email?: string;
+  type?: string;
+  title?: string;
+  subtitle?: string;
+  note?: string;
+  timestamp?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  calories?: number;
+  activity_minutes?: number;
+  blood_pressure?: number;
+};
+
 export type DoctorDashboard = {
   doctor: Record<string, unknown>;
   metrics: Array<Record<string, unknown>>;
@@ -224,25 +261,55 @@ export type DoctorDashboard = {
 };
 
 export async function fetchPatientDashboard(email: string) {
-  return apiRequest<PatientDashboard>(`/api/v1/dashboard/patient/${encodeURIComponent(email)}`);
+  return apiRequest<PatientDashboard>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}`
+  );
 }
 
-export async function savePatientLog(email: string, payload: { type: string; title: string; subtitle?: string; note?: string }) {
-  return apiRequest<{ message: string; logId: string }>(`/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs`, {
-    method: 'POST',
-    body: payload,
-  });
+export async function fetchDashboardStats(email?: string) {
+  const query = email ? `?email=${encodeURIComponent(email)}` : '';
+  return apiRequest<DashboardLog[]>(`/api/dashboard-stats${query}`);
 }
 
-export async function savePatientPlan(email: string, payload: { title: string; description: string; type?: string }) {
-  return apiRequest<{ message: string; planId: string }>(`/api/v1/dashboard/patient/${encodeURIComponent(email)}/plans`, {
-    method: 'POST',
-    body: payload,
-  });
+export async function savePatientLog(
+  email: string,
+  payload: {
+    type: string;
+    title: string;
+    subtitle?: string;
+    note?: string;
+  }
+) {
+  return apiRequest<{ message: string; logId: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs`,
+    {
+      method: 'POST',
+      body: payload,
+    }
+  );
+}
+
+export async function savePatientPlan(
+  email: string,
+  payload: {
+    title: string;
+    description: string;
+    type?: string;
+  }
+) {
+  return apiRequest<{ message: string; planId: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/plans`,
+    {
+      method: 'POST',
+      body: payload,
+    }
+  );
 }
 
 export async function fetchDoctorDashboard(email: string) {
-  return apiRequest<DoctorDashboard>(`/api/v1/dashboard/doctor/${encodeURIComponent(email)}`);
+  return apiRequest<DoctorDashboard>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}`
+  );
 }
 
 export async function saveDoctorPlan(
@@ -259,47 +326,79 @@ export async function saveDoctorPlan(
     goals: string[];
   }
 ) {
-  return apiRequest<{ message: string; planId: string }>(`/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans`, {
-    method: 'POST',
-    body: payload,
-  });
-}
-
-export async function fetchDoctorAlerts(email: string) {
-  return apiRequest<{ alerts: Array<Record<string, unknown>> }>(`/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts`);
-}
-
-export async function resolveDoctorAlert(email: string, alertId: string) {
-  return apiRequest<{ message: string }>(`/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts/${encodeURIComponent(alertId)}/resolve`, {
-    method: 'PATCH',
-  });
-}
-
-export async function fetchDoctorPatients(email: string) {
-  return apiRequest<{ patients: Array<Record<string, unknown>> }>(`/api/v1/dashboard/doctor/${encodeURIComponent(email)}/patients`);
-}
-
-export async function fetchDoctorAnalytics(email: string) {
-  return apiRequest<DoctorDashboard['analytics']>(`/api/v1/dashboard/doctor/${encodeURIComponent(email)}/analytics`);
-}
-
-export async function fetchMessages(email: string) {
-  return apiRequest<{ messages: Array<Record<string, unknown>> }>(`/api/v1/dashboard/messages/${encodeURIComponent(email)}`);
-}
-
-export async function sendMessage(email: string, payload: { doctorId: string; doctorName: string; message: string }) {
-  return apiRequest<{ message: string; messageId: string }>(`/api/v1/dashboard/messages/${encodeURIComponent(email)}`, {
-    method: 'POST',
-    body: payload,
-  });
-}
-
-export async function signInDoctor(payload: { email: string; doctorName: string; specialty?: string }) {
-  return apiRequest<{ message: string; doctor: { email: string; doctorName: string; specialty: string } }>(
-    '/api/v1/dashboard/doctor-login',
+  return apiRequest<{ message: string; planId: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans`,
     {
       method: 'POST',
       body: payload,
     }
   );
+}
+
+export async function fetchDoctorAlerts(email: string) {
+  return apiRequest<{ alerts: Array<Record<string, unknown>> }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts`
+  );
+}
+
+export async function resolveDoctorAlert(email: string, alertId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts/${encodeURIComponent(alertId)}/resolve`,
+    {
+      method: 'PATCH',
+    }
+  );
+}
+
+export async function fetchDoctorPatients(email: string) {
+  return apiRequest<{ patients: Array<Record<string, unknown>> }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/patients`
+  );
+}
+
+export async function fetchDoctorAnalytics(email: string) {
+  return apiRequest<DoctorDashboard['analytics']>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/analytics`
+  );
+}
+
+export async function fetchMessages(email: string) {
+  return apiRequest<{ messages: Array<Record<string, unknown>> }>(
+    `/api/v1/dashboard/messages/${encodeURIComponent(email)}`
+  );
+}
+
+export async function sendMessage(
+  email: string,
+  payload: {
+    doctorId: string;
+    doctorName: string;
+    message: string;
+  }
+) {
+  return apiRequest<{ message: string; messageId: string }>(
+    `/api/v1/dashboard/messages/${encodeURIComponent(email)}`,
+    {
+      method: 'POST',
+      body: payload,
+    }
+  );
+}
+
+export async function signInDoctor(payload: {
+  email: string;
+  doctorName: string;
+  specialty?: string;
+}) {
+  return apiRequest<{
+    message: string;
+    doctor: {
+      email: string;
+      doctorName: string;
+      specialty: string;
+    };
+  }>('/api/v1/dashboard/doctor-login', {
+    method: 'POST',
+    body: payload,
+  });
 }
