@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRoute } from "@react-navigation/native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
     SafeAreaView,
@@ -34,7 +33,7 @@ interface SubscriptionPlan {
 }
 
 export default function FindProfessionals() {
-  const route = useRoute();
+  const { email: emailParam } = useLocalSearchParams<{ email?: string }>();
   const router = useRouter();
   const selectedTab: string = "professionals";
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -42,9 +41,8 @@ export default function FindProfessionals() {
   const [userEmail, setUserEmail] = useState("user@example.com");
 
   useEffect(() => {
-    const params = route.params as any;
-    setUserEmail(params?.email || "user@example.com");
-  }, [route.params]);
+    setUserEmail(emailParam || "user@example.com");
+  }, [emailParam]);
 
   useEffect(() => {
     const loadProfessionals = async () => {

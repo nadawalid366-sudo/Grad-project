@@ -29,7 +29,7 @@ export default function LoginScreen() {
       setIsSubmitting(true);
       const response = await loginUser({ email, password });
 
-      router.push({
+      router.replace({
         pathname: "/(tabs)/home",
         params: {
           fullName: response.user.fullName,

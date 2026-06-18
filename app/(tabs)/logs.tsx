@@ -1,6 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -76,7 +75,7 @@ function normalizeLogType(type: string, title = '', subtitle = ''): LogCategory 
 }
 
 export default function HealthLogs() {
-  const route = useRoute();
+  const params = useLocalSearchParams<{ fullName?: string; age?: string; height?: string; weight?: string; email?: string }>();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<FilterType>('all');
@@ -88,19 +87,15 @@ export default function HealthLogs() {
   const [selectedLogType, setSelectedLogType] = useState<string>('');
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
-  // Extract user data from route params
   useEffect(() => {
-    const params = route.params as any;
-    if (params) {
-      setUserData({
-        fullName: params?.fullName || 'User Name',
-        age: params?.age || '',
-        height: params?.height || '',
-        weight: params?.weight || '',
-        email: params?.email || 'user@example.com'
-      });
-    }
-  }, [route.params]);
+    setUserData({
+      fullName: params.fullName || 'User Name',
+      age: params.age || '',
+      height: params.height || '',
+      weight: params.weight || '',
+      email: params.email || 'user@example.com',
+    });
+  }, [params.fullName, params.age, params.height, params.weight, params.email]);
 
   useEffect(() => {
     const email = userData?.email;

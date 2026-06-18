@@ -32,6 +32,7 @@ export default function TabLayout() {
         name="splash"
         options={{
           title: "Splash",
+          tabBarButton: () => null,
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="star.fill" color={color} />
           ),
@@ -41,6 +42,7 @@ export default function TabLayout() {
         name="login"
         options={{
           title: "Login",
+          tabBarButton: () => null,
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="person.fill" color={color} />
           ),
@@ -50,6 +52,7 @@ export default function TabLayout() {
         name="signup"
         options={{
           title: "Signup",
+          tabBarButton: () => null,
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="person.badge.plus.fill" color={color} />
           ),
@@ -59,6 +62,7 @@ export default function TabLayout() {
         name="profile"
         options={{
           title: "Profile Setup",
+          tabBarButton: () => null,
           tabBarIcon: ({ color }) => (
             <IconSymbol
               size={28}
@@ -72,6 +76,7 @@ export default function TabLayout() {
         name="doclogin"
         options={{
           title: "Doctor Login",
+          tabBarButton: () => null,
           tabBarIcon: ({ color }) => (
             <IconSymbol
               size={28}

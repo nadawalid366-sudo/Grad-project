@@ -1,6 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRoute } from "@react-navigation/native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
     Modal,
@@ -36,7 +35,7 @@ interface Plan {
 }
 
 export default function DocPlansScreen() {
-  const route = useRoute();
+  const { doctorName: doctorNameParam, email: emailParam } = useLocalSearchParams<{ doctorName?: string; email?: string }>();
   const router = useRouter();
   const [doctorName, setDoctorName] = useState("Doctor");
   const [doctorEmail, setDoctorEmail] = useState("doctor@example.com");
@@ -57,11 +56,9 @@ export default function DocPlansScreen() {
   const [editStatus, setEditStatus] = useState<PlanStatus>("Draft");
 
   useEffect(() => {
-    const params = route.params as any;
-    const name = params?.doctorName || "Doctor";
-    setDoctorName(name);
-    setDoctorEmail(params?.email || "doctor@example.com");
-  }, [route.params]);
+    setDoctorName(doctorNameParam || "Doctor");
+    setDoctorEmail(emailParam || "doctor@example.com");
+  }, [doctorNameParam, emailParam]);
 
   useEffect(() => {
     let active = true;

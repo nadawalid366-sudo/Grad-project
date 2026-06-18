@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRoute } from "@react-navigation/native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
     Modal,
@@ -49,10 +48,9 @@ const healthGoals = [
 ];
 
 export default function ProfileSetup() {
-  const route = useRoute();
+  const { email: emailParam } = useLocalSearchParams<{ email?: string }>();
   const router = useRouter();
-  const params = route.params as any;
-  const userEmail = params?.email || "user@example.com";
+  const userEmail = emailParam || "user@example.com";
 
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [profileData, setProfileData] = useState<ProfileData>({
@@ -109,30 +107,26 @@ export default function ProfileSetup() {
     if (currentStep < 5) {
       setCurrentStep((prev) => (prev + 1) as Step);
     } else {
+      setIsSubmitting(true);
       try {
-        setIsSubmitting(true);
         await saveUserProfile({
           email: userEmail,
           profile: profileData,
         });
-
-        router.push({
-          pathname: "/(tabs)/home",
-          params: {
-            fullName: profileData.fullName,
-            age: profileData.age,
-            height: profileData.height,
-            weight: profileData.weight,
-            email: userEmail,
-          },
-        });
       } catch (error) {
-        alert(
-          error instanceof Error ? error.message : "Failed to save profile",
-        );
-      } finally {
-        setIsSubmitting(false);
+        console.log("Profile save error (non-blocking):", error);
       }
+      setIsSubmitting(false);
+      router.replace({
+        pathname: "/(tabs)/home",
+        params: {
+          fullName: profileData.fullName,
+          age: profileData.age,
+          height: profileData.height,
+          weight: profileData.weight,
+          email: userEmail,
+        },
+      });
     }
   };
 

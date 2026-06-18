@@ -1,6 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRoute } from "@react-navigation/native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
     FlatList,
@@ -43,7 +42,7 @@ interface Message {
 }
 
 export default function MessagesPage() {
-  const route = useRoute();
+  const { email: emailParam, subscribedProfessionalTitle, subscribedPlanName, subscribedProfessionalId } = useLocalSearchParams<{ email?: string; subscribedProfessionalTitle?: string; subscribedPlanName?: string; subscribedProfessionalId?: string }>();
   const router = useRouter();
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
   const [selectedTab, setSelectedTab] = useState("messages");
@@ -55,11 +54,7 @@ export default function MessagesPage() {
     useState<SubscriptionBanner | null>(null);
 
   useEffect(() => {
-    const params = route.params as any;
-    const email = params?.email || "user@example.com";
-    const subscribedProfessionalTitle = params?.subscribedProfessionalTitle;
-    const subscribedPlanName = params?.subscribedPlanName;
-    const subscribedProfessionalId = params?.subscribedProfessionalId;
+    const email = emailParam || "user@example.com";
     setUserEmail(email);
     if (subscribedProfessionalTitle && subscribedPlanName) {
       setSubscriptionBanner({
@@ -172,7 +167,7 @@ export default function MessagesPage() {
     return () => {
       active = false;
     };
-  }, [route.params]);
+  }, [emailParam, subscribedProfessionalTitle, subscribedPlanName, subscribedProfessionalId]);
 
   const getDoctorInitials = (name: string) => {
     const cleanName = name.replace(/^dr\.?\s+/i, "").trim();

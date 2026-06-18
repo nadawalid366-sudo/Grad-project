@@ -29,7 +29,7 @@ export default function SignUpScreen() {
     try {
       setIsSubmitting(true);
       const response = await registerUser({ email, phone, password });
-      router.push({
+      router.replace({
         pathname: "/(tabs)/profile",
         params: { email: response.email },
       });

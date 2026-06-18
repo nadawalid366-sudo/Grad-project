@@ -1,10 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRoute } from "@react-navigation/native";
-import { useRouter } from "expo-router";
-import {
-    ExpoSpeechRecognitionModule,
-    useSpeechRecognitionEvent,
-} from "expo-speech-recognition";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
     Animated,
@@ -23,7 +18,30 @@ import {
     savePatientLog,
 } from "../../services/api";
 
-const speechModule = ExpoSpeechRecognitionModule ?? null;
+// expo-speech-recognition is a native module NOT bundled in Expo Go. Its package
+// calls requireNativeModule('ExpoSpeechRecognition') at IMPORT time, which throws
+// in Expo Go — a static import would make this whole route file fail to load and
+// break navigation to /home. Load it via a guarded require so the screen still
+// renders (voice disabled) when the native module is absent.
+type SpeechEventHook = (
+  eventName: string,
+  listener: (event: any) => void,
+) => void;
+
+let speechModule: any = null;
+let useSpeechEvent: SpeechEventHook = () => {};
+try {
+  const SpeechRecognition = require("expo-speech-recognition");
+  if (SpeechRecognition?.ExpoSpeechRecognitionModule) {
+    speechModule = SpeechRecognition.ExpoSpeechRecognitionModule;
+    useSpeechEvent = SpeechRecognition.useSpeechRecognitionEvent;
+  }
+} catch (error) {
+  console.log(
+    "expo-speech-recognition unavailable (expected in Expo Go):",
+    error,
+  );
+}
 
 interface MetricCard {
   id: string;
@@ -60,7 +78,7 @@ interface QuickLogEntry {
 }
 
 export default function DashboardHome() {
-  const route = useRoute();
+  const params = useLocalSearchParams<{ fullName?: string; age?: string; height?: string; weight?: string; email?: string }>();
   const router = useRouter();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [userName, setUserName] = useState("User");
@@ -86,17 +104,16 @@ export default function DashboardHome() {
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const params = route.params as any;
-    const name = params?.fullName || params?.userName || "User";
+    const name = params.fullName || "User";
     setUserName(name);
     setUserData({
-      fullName: params?.fullName || "User Name",
-      age: params?.age || "",
-      height: params?.height || "",
-      weight: params?.weight || "",
-      email: params?.email || "user@example.com",
+      fullName: params.fullName || "User Name",
+      age: params.age || "",
+      height: params.height || "",
+      weight: params.weight || "",
+      email: params.email || "user@example.com",
     });
-  }, [route.params]);
+  }, [params.fullName, params.age, params.height, params.weight, params.email]);
 
   useEffect(() => {
     const email = userData?.email;
@@ -346,11 +363,11 @@ export default function DashboardHome() {
     }
   };
 
-  useSpeechRecognitionEvent("start", () => {
+  useSpeechEvent("start", () => {
     setVoiceAssistantScreen("listening");
   });
 
-  useSpeechRecognitionEvent("result", (event) => {
+  useSpeechEvent("result", (event) => {
     const transcript = event.results?.[0]?.transcript?.trim() || "";
     if (!transcript) {
       return;
@@ -362,13 +379,13 @@ export default function DashboardHome() {
     }
   });
 
-  useSpeechRecognitionEvent("error", (event) => {
+  useSpeechEvent("error", (event) => {
     const fallbackType = classifyVoiceLogType(event?.message || "");
     setSelectedLogType(fallbackType);
     setVoiceAssistantScreen("confirmation");
   });
 
-  useSpeechRecognitionEvent("end", () => {});
+  useSpeechEvent("end", () => {});
 
   const startVoiceRecognition = async () => {
     if (!speechModule) {

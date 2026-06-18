@@ -1,6 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRoute } from "@react-navigation/native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
     Dimensions,
@@ -39,7 +38,7 @@ interface AlertTrend {
 }
 
 export default function Analytics() {
-  const route = useRoute();
+  const { email: emailParam } = useLocalSearchParams<{ email?: string }>();
   const router = useRouter();
   const [selectedPeriod, setSelectedPeriod] = useState<
     "week" | "month" | "year"
@@ -48,8 +47,7 @@ export default function Analytics() {
   const [analyticsData, setAnalyticsData] = useState<any>(null);
 
   useEffect(() => {
-    const params = route.params as any;
-    const email = params?.email || "doctor@example.com";
+    const email = emailParam || "doctor@example.com";
 
     let active = true;
     fetchDoctorAnalytics(email)
@@ -64,7 +62,7 @@ export default function Analytics() {
     return () => {
       active = false;
     };
-  }, [route.params]);
+  }, [emailParam]);
 
   const stats: StatCard[] = analyticsData?.stats || [];
   const patientsByCondition: ChartData[] =

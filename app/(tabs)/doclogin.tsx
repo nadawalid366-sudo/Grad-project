@@ -27,7 +27,7 @@ export default function DoctorLoginScreen() {
 
     signInDoctor({ email, doctorName, specialty: "General Practitioner" })
       .then(() => {
-        router.push({
+        router.replace({
           pathname: "/(tabs)/dochome",
           params: { doctorName, email },
         });
