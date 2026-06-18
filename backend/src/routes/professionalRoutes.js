@@ -17,7 +17,9 @@ router.get("/", async (_req, res) => {
     const professionals = await professionalsCollection.find({}).toArray();
     return res.json({ professionals });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to load professionals.", error: String(error) });
+    return res
+      .status(500)
+      .json({ message: "Failed to load professionals.", error: String(error) });
   }
 });
 

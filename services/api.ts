@@ -1,4 +1,4 @@
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
 
 function resolveApiBaseUrl() {
   const constantsAny = Constants as unknown as {
@@ -36,28 +36,31 @@ function resolveApiBaseUrl() {
     constantsAny.manifest?.debuggerHost;
 
   if (hostFromExpo) {
-    const hostIp = hostFromExpo.split(':')[0];
-    return `http://${hostIp}:5000`;
+    const hostIp = hostFromExpo.split(":")[0];
+    return `http://${hostIp}:5001`;
   }
 
-  return 'http://localhost:5000';
+  return "http://localhost:5001";
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();
 
 type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
 };
 
-async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
   const url = `${API_BASE_URL}${path}`;
 
   try {
     const response = await fetch(url, {
-      method: options.method || 'GET',
+      method: options.method || "GET",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
@@ -77,7 +80,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
 
     if (error instanceof TypeError) {
       throw new Error(
-        `Cannot reach backend at ${API_BASE_URL}. Make sure backend is running and phone/emulator can access this IP.`
+        `Cannot reach backend at ${API_BASE_URL}. Make sure backend is running and phone/emulator can access this IP.`,
       );
     }
 
@@ -96,23 +99,23 @@ export type LoginResponse = {
   };
 };
 
-export async function registerUser(payload: { email: string; phone: string; password: string }) {
-  return apiRequest<{ message: string; userId: string; email: string }>('/api/v1/auth/register', {
-    method: 'POST',
-    body: payload,
-  });
-}
-
-export async function verifyUser(payload: { email: string; code: string }) {
-  return apiRequest<{ message: string; email: string }>('/api/v1/auth/verify', {
-    method: 'POST',
-    body: payload,
-  });
+export async function registerUser(payload: {
+  email: string;
+  phone: string;
+  password: string;
+}) {
+  return apiRequest<{ message: string; userId: string; email: string }>(
+    "/api/v1/auth/register",
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
 export async function loginUser(payload: { email: string; password: string }) {
-  return apiRequest<LoginResponse>('/api/v1/auth/login', {
-    method: 'POST',
+  return apiRequest<LoginResponse>("/api/v1/auth/login", {
+    method: "POST",
     body: payload,
   });
 }
@@ -132,10 +135,13 @@ export async function saveUserProfile(payload: {
     units: string;
   };
 }) {
-  return apiRequest<{ message: string; user: Record<string, unknown> }>('/api/v1/users/profile', {
-    method: 'POST',
-    body: payload,
-  });
+  return apiRequest<{ message: string; user: Record<string, unknown> }>(
+    "/api/v1/users/profile",
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
 export type UserSubscription = {
@@ -162,24 +168,24 @@ export async function saveUserSubscription(payload: {
   };
 }) {
   return apiRequest<{ message: string; subscription: UserSubscription }>(
-    '/api/v1/users/subscriptions',
+    "/api/v1/users/subscriptions",
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
   );
 }
 
 export async function fetchUserSubscriptions(email: string) {
   return apiRequest<{ subscriptions: UserSubscription[] }>(
-    `/api/v1/users/${encodeURIComponent(email)}/subscriptions`
+    `/api/v1/users/${encodeURIComponent(email)}/subscriptions`,
   );
 }
 
 export type Professional = {
   _id?: string;
   id?: string;
-  type: 'doctor' | 'nutritionist' | 'coach';
+  type: "doctor" | "nutritionist" | "coach";
   title: string;
   description: string;
   icon: string;
@@ -197,7 +203,7 @@ export type Professional = {
 };
 
 export async function fetchProfessionals() {
-  return apiRequest<{ professionals: Professional[] }>('/api/v1/professionals');
+  return apiRequest<{ professionals: Professional[] }>("/api/v1/professionals");
 }
 
 export async function getUserByEmail(email: string) {
@@ -220,13 +226,13 @@ export type PatientDashboard = {
     weight: string;
     phone: string;
   };
-  metrics: Array<Record<string, unknown>>;
-  recentActivities: Array<Record<string, unknown>>;
-  quickActions: Array<Record<string, unknown>>;
-  logs: Array<Record<string, unknown>>;
-  plans: Array<Record<string, unknown>>;
-  messages: Array<Record<string, unknown>>;
-  professionals: Array<Record<string, unknown>>;
+  metrics: Record<string, unknown>[];
+  recentActivities: Record<string, unknown>[];
+  quickActions: Record<string, unknown>[];
+  logs: Record<string, unknown>[];
+  plans: Record<string, unknown>[];
+  messages: Record<string, unknown>[];
+  professionals: Record<string, unknown>[];
 };
 
 export type DashboardLog = {
@@ -247,27 +253,27 @@ export type DashboardLog = {
 
 export type DoctorDashboard = {
   doctor: Record<string, unknown>;
-  metrics: Array<Record<string, unknown>>;
-  recentAlerts: Array<Record<string, unknown>>;
-  patientActivity: Array<Record<string, unknown>>;
-  patients: Array<Record<string, unknown>>;
-  plans: Array<Record<string, unknown>>;
+  metrics: Record<string, unknown>[];
+  recentAlerts: Record<string, unknown>[];
+  patientActivity: Record<string, unknown>[];
+  patients: Record<string, unknown>[];
+  plans: Record<string, unknown>[];
   analytics: {
-    stats: Array<Record<string, unknown>>;
-    patientsByCondition: Array<Record<string, unknown>>;
-    weeklyActivity: Array<Record<string, unknown>>;
-    alertTrends: Array<Record<string, unknown>>;
+    stats: Record<string, unknown>[];
+    patientsByCondition: Record<string, unknown>[];
+    weeklyActivity: Record<string, unknown>[];
+    alertTrends: Record<string, unknown>[];
   };
 };
 
 export async function fetchPatientDashboard(email: string) {
   return apiRequest<PatientDashboard>(
-    `/api/v1/dashboard/patient/${encodeURIComponent(email)}`
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}`,
   );
 }
 
 export async function fetchDashboardStats(email?: string) {
-  const query = email ? `?email=${encodeURIComponent(email)}` : '';
+  const query = email ? `?email=${encodeURIComponent(email)}` : "";
   return apiRequest<DashboardLog[]>(`/api/dashboard-stats${query}`);
 }
 
@@ -278,14 +284,14 @@ export async function savePatientLog(
     title: string;
     subtitle?: string;
     note?: string;
-  }
+  },
 ) {
   return apiRequest<{ message: string; logId: string }>(
     `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs`,
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
   );
 }
 
@@ -295,20 +301,20 @@ export async function savePatientPlan(
     title: string;
     description: string;
     type?: string;
-  }
+  },
 ) {
   return apiRequest<{ message: string; planId: string }>(
     `/api/v1/dashboard/patient/${encodeURIComponent(email)}/plans`,
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
   );
 }
 
 export async function fetchDoctorDashboard(email: string) {
   return apiRequest<DoctorDashboard>(
-    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}`
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}`,
   );
 }
 
@@ -324,20 +330,20 @@ export async function saveDoctorPlan(
     adherence: number;
     description: string;
     goals: string[];
-  }
+  },
 ) {
   return apiRequest<{ message: string; planId: string }>(
     `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans`,
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
   );
 }
 
 export async function fetchDoctorAlerts(email: string) {
-  return apiRequest<{ alerts: Array<Record<string, unknown>> }>(
-    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts`
+  return apiRequest<{ alerts: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts`,
   );
 }
 
@@ -345,26 +351,26 @@ export async function resolveDoctorAlert(email: string, alertId: string) {
   return apiRequest<{ message: string }>(
     `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts/${encodeURIComponent(alertId)}/resolve`,
     {
-      method: 'PATCH',
-    }
+      method: "PATCH",
+    },
   );
 }
 
 export async function fetchDoctorPatients(email: string) {
-  return apiRequest<{ patients: Array<Record<string, unknown>> }>(
-    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/patients`
+  return apiRequest<{ patients: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/patients`,
   );
 }
 
 export async function fetchDoctorAnalytics(email: string) {
-  return apiRequest<DoctorDashboard['analytics']>(
-    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/analytics`
+  return apiRequest<DoctorDashboard["analytics"]>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/analytics`,
   );
 }
 
 export async function fetchMessages(email: string) {
-  return apiRequest<{ messages: Array<Record<string, unknown>> }>(
-    `/api/v1/dashboard/messages/${encodeURIComponent(email)}`
+  return apiRequest<{ messages: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/messages/${encodeURIComponent(email)}`,
   );
 }
 
@@ -374,14 +380,14 @@ export async function sendMessage(
     doctorId: string;
     doctorName: string;
     message: string;
-  }
+  },
 ) {
   return apiRequest<{ message: string; messageId: string }>(
     `/api/v1/dashboard/messages/${encodeURIComponent(email)}`,
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
   );
 }
 
@@ -397,8 +403,8 @@ export async function signInDoctor(payload: {
       doctorName: string;
       specialty: string;
     };
-  }>('/api/v1/dashboard/doctor-login', {
-    method: 'POST',
+  }>("/api/v1/dashboard/doctor-login", {
+    method: "POST",
     body: payload,
   });
 }

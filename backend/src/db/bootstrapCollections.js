@@ -32,7 +32,13 @@ async function seedCollectionIfEmpty(db, collectionName, docs) {
   const collection = db.collection(collectionName);
   const count = await collection.countDocuments();
   if (count === 0) {
-    await collection.insertMany(docs);
+    await collection.insertMany(
+      docs.map((doc) => ({
+        ...doc,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })),
+    );
   }
 }
 
@@ -42,6 +48,14 @@ export async function bootstrapCollections() {
 
   await seedCollectionIfEmpty(db, "professionals", defaultProfessionals);
   await seedCollectionIfEmpty(db, "doctorAlerts", doctorDashboardSeed.alerts);
-  await seedCollectionIfEmpty(db, "doctorPatients", doctorDashboardSeed.patients);
-  await seedCollectionIfEmpty(db, "doctorActivities", doctorDashboardSeed.patientActivity);
+  await seedCollectionIfEmpty(
+    db,
+    "doctorPatients",
+    doctorDashboardSeed.patients,
+  );
+  await seedCollectionIfEmpty(
+    db,
+    "doctorActivities",
+    doctorDashboardSeed.patientActivity,
+  );
 }

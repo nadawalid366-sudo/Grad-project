@@ -1,7 +1,7 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { useRoute } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
     Modal,
     SafeAreaView,
@@ -10,9 +10,9 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View
-} from 'react-native';
-import { getUserByEmail, saveUserProfile } from '../../services/api';
+    View,
+} from "react-native";
+import { getUserByEmail, saveUserProfile } from "../../services/api";
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -30,44 +30,44 @@ interface ProfileData {
 }
 
 const medicalConditionsList = [
-  'Hypertension',
-  'Diabetes Type 1',
-  'Diabetes Type 2',
-  'Heart Disease',
-  'High Cholesterol',
-  'Asthma',
-  'Arthritis',
-  'Obesity',
-  'Sleep Apnea',
+  "Hypertension",
+  "Diabetes Type 1",
+  "Diabetes Type 2",
+  "Heart Disease",
+  "High Cholesterol",
+  "Asthma",
+  "Arthritis",
+  "Obesity",
+  "Sleep Apnea",
 ];
 
 const healthGoals = [
-  { id: 'weight', label: 'Weight Management', icon: '⚖️' },
-  { id: 'nutrition', label: 'Better Nutrition', icon: '🥗' },
-  { id: 'fitness', label: 'Fitness & Activity', icon: '💪' },
-  { id: 'disease', label: 'Disease Control', icon: '💊' },
+  { id: "weight", label: "Weight Management", icon: "⚖️" },
+  { id: "nutrition", label: "Better Nutrition", icon: "🥗" },
+  { id: "fitness", label: "Fitness & Activity", icon: "💪" },
+  { id: "disease", label: "Disease Control", icon: "💊" },
 ];
 
 export default function ProfileSetup() {
   const route = useRoute();
   const router = useRouter();
   const params = route.params as any;
-  const userEmail = params?.email || 'user@example.com';
-  
+  const userEmail = params?.email || "user@example.com";
+
   const [currentStep, setCurrentStep] = useState<Step>(1);
   const [profileData, setProfileData] = useState<ProfileData>({
-    fullName: '',
-    age: '',
-    gender: '',
-    height: '',
-    weight: '',
+    fullName: "",
+    age: "",
+    gender: "",
+    height: "",
+    weight: "",
     medicalConditions: [],
     allergies: [],
     healthGoals: [],
-    language: 'English',
-    units: 'Metric (kg, cm)',
+    language: "English",
+    units: "Metric (kg, cm)",
   });
-  const [allergyInput, setAllergyInput] = useState('');
+  const [allergyInput, setAllergyInput] = useState("");
   const [showGenderModal, setShowGenderModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -86,7 +86,8 @@ export default function ProfileSetup() {
           gender: profile.gender || prev.gender,
           height: profile.height || prev.height,
           weight: profile.weight || prev.weight,
-          medicalConditions: profile.medicalConditions || prev.medicalConditions,
+          medicalConditions:
+            profile.medicalConditions || prev.medicalConditions,
           allergies: profile.allergies || prev.allergies,
           healthGoals: profile.healthGoals || prev.healthGoals,
           language: profile.language || prev.language,
@@ -94,7 +95,7 @@ export default function ProfileSetup() {
         }));
       })
       .catch((error) => {
-        console.log('Failed to fetch profile:', error);
+        console.log("Failed to fetch profile:", error);
       });
 
     return () => {
@@ -102,7 +103,7 @@ export default function ProfileSetup() {
     };
   }, [userEmail]);
 
-  const genderOptions = ['Male', 'Female', 'Other'];
+  const genderOptions = ["Male", "Female", "Other"];
 
   const handleContinue = async () => {
     if (currentStep < 5) {
@@ -116,7 +117,7 @@ export default function ProfileSetup() {
         });
 
         router.push({
-          pathname: '/(tabs)/home',
+          pathname: "/(tabs)/home",
           params: {
             fullName: profileData.fullName,
             age: profileData.age,
@@ -126,7 +127,9 @@ export default function ProfileSetup() {
           },
         });
       } catch (error) {
-        alert(error instanceof Error ? error.message : 'Failed to save profile');
+        alert(
+          error instanceof Error ? error.message : "Failed to save profile",
+        );
       } finally {
         setIsSubmitting(false);
       }
@@ -154,7 +157,7 @@ export default function ProfileSetup() {
         ...prev,
         allergies: [...prev.allergies, allergyInput.trim()],
       }));
-      setAllergyInput('');
+      setAllergyInput("");
     }
   };
 
@@ -170,7 +173,7 @@ export default function ProfileSetup() {
       const newGoals = prev.healthGoals.includes(goalId)
         ? prev.healthGoals.filter((g) => g !== goalId)
         : [...prev.healthGoals, goalId];
-      
+
       return {
         ...prev,
         healthGoals: newGoals,
@@ -180,12 +183,12 @@ export default function ProfileSetup() {
 
   const renderProgressBar = () => (
     <View style={styles.progressContainer}>
-      <Text style={styles.progressText}>
-        Complete Your Profile
-      </Text>
+      <Text style={styles.progressText}>Complete Your Profile</Text>
       <Text style={styles.stepText}>Step {currentStep} of 5</Text>
       <View style={styles.progressBarContainer}>
-        <View style={[styles.progressBar, { width: `${(currentStep / 5) * 100}%` }]} />
+        <View
+          style={[styles.progressBar, { width: `${(currentStep / 5) * 100}%` }]}
+        />
       </View>
     </View>
   );
@@ -208,7 +211,9 @@ export default function ProfileSetup() {
           style={styles.input}
           placeholder="Ahmed Mohamed"
           value={profileData.fullName}
-          onChangeText={(text) => setProfileData({ ...profileData, fullName: text })}
+          onChangeText={(text) =>
+            setProfileData({ ...profileData, fullName: text })
+          }
         />
       </View>
 
@@ -220,7 +225,9 @@ export default function ProfileSetup() {
             placeholder="30"
             keyboardType="numeric"
             value={profileData.age}
-            onChangeText={(text) => setProfileData({ ...profileData, age: text })}
+            onChangeText={(text) =>
+              setProfileData({ ...profileData, age: text })
+            }
           />
         </View>
 
@@ -231,8 +238,14 @@ export default function ProfileSetup() {
               style={styles.picker}
               onPress={() => setShowGenderModal(true)}
             >
-              <Text style={profileData.gender ? styles.pickerText : styles.pickerPlaceholder}>
-                {profileData.gender || 'Select'}
+              <Text
+                style={
+                  profileData.gender
+                    ? styles.pickerText
+                    : styles.pickerPlaceholder
+                }
+              >
+                {profileData.gender || "Select"}
               </Text>
               <Ionicons name="chevron-down" size={20} color="#9CA3AF" />
             </TouchableOpacity>
@@ -248,7 +261,9 @@ export default function ProfileSetup() {
             placeholder="175"
             keyboardType="numeric"
             value={profileData.height}
-            onChangeText={(text) => setProfileData({ ...profileData, height: text })}
+            onChangeText={(text) =>
+              setProfileData({ ...profileData, height: text })
+            }
           />
         </View>
 
@@ -259,7 +274,9 @@ export default function ProfileSetup() {
             placeholder="75"
             keyboardType="numeric"
             value={profileData.weight}
-            onChangeText={(text) => setProfileData({ ...profileData, weight: text })}
+            onChangeText={(text) =>
+              setProfileData({ ...profileData, weight: text })
+            }
           />
         </View>
       </View>
@@ -274,7 +291,9 @@ export default function ProfileSetup() {
         </View>
         <View style={styles.headerTextContainer}>
           <Text style={styles.stepTitle}>Medical Conditions</Text>
-          <Text style={styles.stepSubtitle}>Select any that apply (optional)</Text>
+          <Text style={styles.stepSubtitle}>
+            Select any that apply (optional)
+          </Text>
         </View>
       </View>
 
@@ -284,14 +303,16 @@ export default function ProfileSetup() {
             key={condition}
             style={[
               styles.conditionCard,
-              profileData.medicalConditions.includes(condition) && styles.conditionCardSelected,
+              profileData.medicalConditions.includes(condition) &&
+                styles.conditionCardSelected,
             ]}
             onPress={() => toggleMedicalCondition(condition)}
           >
             <Text
               style={[
                 styles.conditionText,
-                profileData.medicalConditions.includes(condition) && styles.conditionTextSelected,
+                profileData.medicalConditions.includes(condition) &&
+                  styles.conditionTextSelected,
               ]}
             >
               {condition}
@@ -310,7 +331,9 @@ export default function ProfileSetup() {
         </View>
         <View style={styles.headerTextContainer}>
           <Text style={styles.stepTitle}>Allergies & Intolerances</Text>
-          <Text style={styles.stepSubtitle}>Add any food allergies or intolerances</Text>
+          <Text style={styles.stepSubtitle}>
+            Add any food allergies or intolerances
+          </Text>
         </View>
       </View>
 
@@ -340,7 +363,8 @@ export default function ProfileSetup() {
       ) : (
         <View style={styles.emptyState}>
           <Text style={styles.emptyStateText}>
-            No allergies added yet. You can skip this step if you don't have any.
+            No allergies added yet. You can skip this step if you don&apos;t
+            have any.
           </Text>
         </View>
       )}
@@ -355,7 +379,9 @@ export default function ProfileSetup() {
         </View>
         <View style={styles.headerTextContainer}>
           <Text style={styles.stepTitle}>Your Health Goals</Text>
-          <Text style={styles.stepSubtitle}>What do you want to achieve? (Select all that apply)</Text>
+          <Text style={styles.stepSubtitle}>
+            What do you want to achieve? (Select all that apply)
+          </Text>
         </View>
       </View>
 
@@ -366,7 +392,8 @@ export default function ProfileSetup() {
             activeOpacity={0.7}
             style={[
               styles.goalCard,
-              profileData.healthGoals.includes(goal.id) && styles.goalCardSelected,
+              profileData.healthGoals.includes(goal.id) &&
+                styles.goalCardSelected,
             ]}
             onPress={() => selectHealthGoal(goal.id)}
           >
@@ -380,11 +407,11 @@ export default function ProfileSetup() {
           </TouchableOpacity>
         ))}
       </View>
-      
+
       {profileData.healthGoals.length > 0 && (
         <View style={styles.selectedGoalsDebug}>
           <Text style={styles.debugText}>
-            Selected: {profileData.healthGoals.join(', ')}
+            Selected: {profileData.healthGoals.join(", ")}
           </Text>
         </View>
       )}
@@ -409,9 +436,10 @@ export default function ProfileSetup() {
           <TouchableOpacity
             style={styles.picker}
             onPress={() => {
-              const languages = ['English', 'Arabic', 'French', 'Spanish'];
+              const languages = ["English", "Arabic", "French", "Spanish"];
               const currentIndex = languages.indexOf(profileData.language);
-              const nextLanguage = languages[(currentIndex + 1) % languages.length];
+              const nextLanguage =
+                languages[(currentIndex + 1) % languages.length];
               setProfileData({ ...profileData, language: nextLanguage });
             }}
           >
@@ -430,9 +458,9 @@ export default function ProfileSetup() {
               setProfileData({
                 ...profileData,
                 units:
-                  profileData.units === 'Metric (kg, cm)'
-                    ? 'Imperial (lb, ft)'
-                    : 'Metric (kg, cm)',
+                  profileData.units === "Metric (kg, cm)"
+                    ? "Imperial (lb, ft)"
+                    : "Metric (kg, cm)",
               });
             }}
           >
@@ -444,7 +472,7 @@ export default function ProfileSetup() {
 
       <View style={styles.completionBox}>
         <Ionicons name="checkmark-circle" size={24} color="#10B981" />
-        <Text style={styles.completionText}>You're all set!</Text>
+        <Text style={styles.completionText}>You&apos;re all set!</Text>
         <Text style={styles.completionSubtext}>
           Click finish to start tracking your health journey with VitalConnect.
         </Text>
@@ -487,12 +515,19 @@ export default function ProfileSetup() {
           </TouchableOpacity>
         )}
         <TouchableOpacity
-          style={[styles.continueButton, currentStep === 1 && styles.continueButtonFull]}
+          style={[
+            styles.continueButton,
+            currentStep === 1 && styles.continueButtonFull,
+          ]}
           onPress={handleContinue}
           disabled={isSubmitting}
         >
           <Text style={styles.continueButtonText}>
-            {isSubmitting ? 'Saving...' : currentStep === 5 ? 'Finish' : 'Continue'}
+            {isSubmitting
+              ? "Saving..."
+              : currentStep === 5
+                ? "Finish"
+                : "Continue"}
           </Text>
         </TouchableOpacity>
       </View>
@@ -504,7 +539,7 @@ export default function ProfileSetup() {
         animationType="fade"
         onRequestClose={() => setShowGenderModal(false)}
       >
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
           onPress={() => setShowGenderModal(false)}
@@ -521,17 +556,20 @@ export default function ProfileSetup() {
                 key={option}
                 style={[
                   styles.modalOption,
-                  profileData.gender === option && styles.modalOptionSelected
+                  profileData.gender === option && styles.modalOptionSelected,
                 ]}
                 onPress={() => {
                   setProfileData({ ...profileData, gender: option });
                   setShowGenderModal(false);
                 }}
               >
-                <Text style={[
-                  styles.modalOptionText,
-                  profileData.gender === option && styles.modalOptionTextSelected
-                ]}>
+                <Text
+                  style={[
+                    styles.modalOptionText,
+                    profileData.gender === option &&
+                      styles.modalOptionTextSelected,
+                  ]}
+                >
                   {option}
                 </Text>
                 {profileData.gender === option && (
@@ -549,35 +587,35 @@ export default function ProfileSetup() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
   },
   progressContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
   progressText: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: "600",
+    color: "#111827",
     marginBottom: 4,
   },
   stepText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: "#6B7280",
     marginBottom: 12,
   },
   progressBarContainer: {
     height: 6,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
     borderRadius: 3,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   progressBar: {
-    height: '100%',
-    backgroundColor: '#3B82F6',
+    height: "100%",
+    backgroundColor: "#3B82F6",
     borderRadius: 3,
   },
   scrollView: {
@@ -587,27 +625,27 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   stepContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 24,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 2,
   },
   iconHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 24,
   },
   iconCircle: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#EFF6FF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#EFF6FF",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 16,
   },
   headerTextContainer: {
@@ -615,126 +653,126 @@ const styles = StyleSheet.create({
   },
   stepTitle: {
     fontSize: 20,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: "600",
+    color: "#111827",
     marginBottom: 4,
   },
   stepSubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   inputGroup: {
     marginBottom: 20,
   },
   label: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
+    fontWeight: "500",
+    color: "#374151",
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#111827',
+    color: "#111827",
   },
   rowInputs: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
   },
   halfWidth: {
     flex: 1,
   },
   pickerContainer: {
-    position: 'relative',
+    position: "relative",
   },
   picker: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   pickerText: {
     fontSize: 16,
-    color: '#111827',
+    color: "#111827",
   },
   pickerPlaceholder: {
     fontSize: 16,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   conditionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
   },
   conditionCard: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    minWidth: '47%',
+    minWidth: "47%",
   },
   conditionCardSelected: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#3B82F6',
+    backgroundColor: "#EFF6FF",
+    borderColor: "#3B82F6",
   },
   conditionText: {
     fontSize: 14,
-    color: '#374151',
-    textAlign: 'center',
+    color: "#374151",
+    textAlign: "center",
   },
   conditionTextSelected: {
-    color: '#3B82F6',
-    fontWeight: '500',
+    color: "#3B82F6",
+    fontWeight: "500",
   },
   allergyInputContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
     marginBottom: 20,
   },
   allergyInput: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 16,
-    color: '#111827',
+    color: "#111827",
   },
   addButton: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
     borderRadius: 8,
     paddingHorizontal: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   addButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   allergyList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   allergyTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEE2E2',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEE2E2",
     borderRadius: 20,
     paddingVertical: 8,
     paddingHorizontal: 12,
@@ -742,35 +780,35 @@ const styles = StyleSheet.create({
   },
   allergyTagText: {
     fontSize: 14,
-    color: '#DC2626',
+    color: "#DC2626",
   },
   emptyState: {
     paddingVertical: 40,
-    alignItems: 'center',
+    alignItems: "center",
   },
   emptyStateText: {
     fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
+    color: "#6B7280",
+    textAlign: "center",
   },
   goalsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 16,
   },
   goalCard: {
-    width: '47%',
-    backgroundColor: '#F9FAFB',
+    width: "47%",
+    backgroundColor: "#F9FAFB",
     borderWidth: 2,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
     borderRadius: 12,
     padding: 20,
-    alignItems: 'center',
-    position: 'relative',
+    alignItems: "center",
+    position: "relative",
   },
   goalCardSelected: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#3B82F6',
+    backgroundColor: "#EFF6FF",
+    borderColor: "#3B82F6",
   },
   goalIcon: {
     fontSize: 40,
@@ -778,140 +816,140 @@ const styles = StyleSheet.create({
   },
   goalLabel: {
     fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-    textAlign: 'center',
+    fontWeight: "500",
+    color: "#374151",
+    textAlign: "center",
   },
   checkmark: {
-    position: 'absolute',
+    position: "absolute",
     top: 8,
     right: 8,
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#3B82F6',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#3B82F6",
+    justifyContent: "center",
+    alignItems: "center",
   },
   completionBox: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: "#ECFDF5",
     borderWidth: 1,
-    borderColor: '#10B981',
+    borderColor: "#10B981",
     borderRadius: 12,
     padding: 20,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 20,
   },
   completionText: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#047857',
+    fontWeight: "600",
+    color: "#047857",
     marginTop: 8,
     marginBottom: 4,
   },
   completionSubtext: {
     fontSize: 14,
-    color: '#065F46',
-    textAlign: 'center',
+    color: "#065F46",
+    textAlign: "center",
   },
   navigationButtons: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
     padding: 20,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: "#E5E7EB",
   },
   backButton: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: "#D1D5DB",
     borderRadius: 8,
     paddingVertical: 14,
-    alignItems: 'center',
+    alignItems: "center",
   },
   backButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: "600",
+    color: "#374151",
   },
   continueButton: {
     flex: 2,
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
     borderRadius: 8,
     paddingVertical: 14,
-    alignItems: 'center',
+    alignItems: "center",
   },
   continueButtonFull: {
     flex: 1,
   },
   continueButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
+    fontWeight: "600",
+    color: "#fff",
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
     borderRadius: 12,
-    width: '100%',
+    width: "100%",
     maxWidth: 400,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
   },
   modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: "600",
+    color: "#111827",
   },
   modalOption: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: "#F3F4F6",
   },
   modalOptionSelected: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: "#EFF6FF",
   },
   modalOptionText: {
     fontSize: 16,
-    color: '#374151',
+    color: "#374151",
   },
   modalOptionTextSelected: {
-    color: '#3B82F6',
-    fontWeight: '600',
+    color: "#3B82F6",
+    fontWeight: "600",
   },
   selectedGoalsDebug: {
     marginTop: 16,
     padding: 12,
-    backgroundColor: '#DBEAFE',
+    backgroundColor: "#DBEAFE",
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#3B82F6',
+    borderColor: "#3B82F6",
   },
   debugText: {
     fontSize: 12,
-    color: '#1E40AF',
-    fontWeight: '500',
+    color: "#1E40AF",
+    fontWeight: "500",
   },
 });

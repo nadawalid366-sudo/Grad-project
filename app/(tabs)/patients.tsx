@@ -1,7 +1,7 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { Ionicons } from "@expo/vector-icons";
+import { useRoute } from "@react-navigation/native";
+import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
     SafeAreaView,
     ScrollView,
@@ -10,37 +10,37 @@ import {
     TextInput,
     TouchableOpacity,
     View,
-} from 'react-native';
-import { fetchDoctorPatients } from '../../services/api';
+} from "react-native";
+import { fetchDoctorPatients } from "../../services/api";
 
 interface Patient {
   id: string;
   name: string;
   age: number;
-  gender: 'Male' | 'Female';
+  gender: "Male" | "Female";
   conditions: string[];
   lastActivity: string;
   adherence: number;
   alerts: number;
-  trend: 'up' | 'down' | 'stable';
+  trend: "up" | "down" | "stable";
 }
 
 export default function MyPatientsScreen() {
   const route = useRoute();
   const router = useRouter();
-  const [doctorName, setDoctorName] = useState('Doctor');
-  const [doctorEmail, setDoctorEmail] = useState('doctor@example.com');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCondition, setSelectedCondition] = useState('All Conditions');
-  const [sortBy, setSortBy] = useState('Sort by Name');
-  const [viewMode, setViewMode] = useState<'list' | 'table'>('list');
-  const [selectedTab, setSelectedTab] = useState('patients');
+  const [doctorName, setDoctorName] = useState("Doctor");
+  const [doctorEmail, setDoctorEmail] = useState("doctor@example.com");
+  const [searchQuery, setSearchQuery] = useState("");
+  const selectedCondition = "All Conditions";
+  const sortBy = "Sort by Name";
+  const [viewMode, setViewMode] = useState<"list" | "table">("list");
+  const selectedTab: string = "patients";
 
   useEffect(() => {
     const params = route.params as any;
-    const name = params?.doctorName || 'Doctor';
+    const name = params?.doctorName || "Doctor";
     setDoctorName(name);
-    setDoctorEmail(params?.email || 'doctor@example.com');
+    setDoctorEmail(params?.email || "doctor@example.com");
   }, [route.params]);
 
   const [dashboardPatients, setDashboardPatients] = useState<Patient[]>([]);
@@ -50,99 +50,45 @@ export default function MyPatientsScreen() {
     fetchDoctorPatients(doctorEmail)
       .then((response) => {
         if (!active) return;
-        setDashboardPatients((response.patients || []).map((patient: any, index: number) => ({
-          id: patient.id || patient._id || String(index + 1),
-          name: patient.name,
-          age: Number(patient.age || 0),
-          gender: patient.gender,
-          conditions: patient.conditions || [],
-          lastActivity: patient.lastActivity || 'Just now',
-          adherence: Number(patient.adherence || 0),
-          alerts: Number(patient.alerts || 0),
-          trend: patient.trend || 'stable',
-        })));
+        setDashboardPatients(
+          (response.patients || []).map((patient: any, index: number) => ({
+            id: patient.id || patient._id || String(index + 1),
+            name: patient.name,
+            age: Number(patient.age || 0),
+            gender: patient.gender,
+            conditions: patient.conditions || [],
+            lastActivity: patient.lastActivity || "Just now",
+            adherence: Number(patient.adherence || 0),
+            alerts: Number(patient.alerts || 0),
+            trend: patient.trend || "stable",
+          })),
+        );
       })
-      .catch((error) => console.log('Failed to load patients:', error));
+      .catch((error) => console.log("Failed to load patients:", error));
 
     return () => {
       active = false;
     };
   }, [doctorEmail]);
 
-  const patients: Patient[] = dashboardPatients.length > 0 ? dashboardPatients : [
-    {
-      id: '1',
-      name: 'Ahmed Mohamed',
-      age: 45,
-      gender: 'Male',
-      conditions: ['Diabetes Type 2', 'Hypertension'],
-      lastActivity: '2 hours ago',
-      adherence: 85,
-      alerts: 2,
-      trend: 'up',
-    },
-    {
-      id: '2',
-      name: 'Fatima Ali',
-      age: 38,
-      gender: 'Female',
-      conditions: ['Hypertension'],
-      lastActivity: '5 hours ago',
-      adherence: 92,
-      alerts: 1,
-      trend: 'stable',
-    },
-    {
-      id: '3',
-      name: 'Layla Ahmed',
-      age: 34,
-      gender: 'Female',
-      conditions: ['Asthma'],
-      lastActivity: '4 hours ago',
-      adherence: 88,
-      alerts: 0,
-      trend: 'up',
-    },
-    {
-      id: '4',
-      name: 'Omar Hassan',
-      age: 52,
-      gender: 'Male',
-      conditions: ['Diabetes Type 2', 'High Cholesterol'],
-      lastActivity: '1 day ago',
-      adherence: 67,
-      alerts: 3,
-      trend: 'down',
-    },
-    {
-      id: '5',
-      name: 'Sara Ibrahim',
-      age: 29,
-      gender: 'Female',
-      conditions: ['Obesity'],
-      lastActivity: '3 days ago',
-      adherence: 45,
-      alerts: 2,
-      trend: 'down',
-    },
-  ];
+  const patients: Patient[] = dashboardPatients;
 
   const getConditionColor = (condition: string) => {
     const colorMap: { [key: string]: { bg: string; text: string } } = {
-      'Diabetes Type 2': { bg: '#FEE2E2', text: '#DC2626' },
-      'Hypertension': { bg: '#FED7AA', text: '#C2410C' },
-      'Asthma': { bg: '#FCE7F3', text: '#BE185D' },
-      'High Cholesterol': { bg: '#F3E8FF', text: '#7C3AED' },
-      'Obesity': { bg: '#FEF3C7', text: '#B45309' },
+      "Diabetes Type 2": { bg: "#FEE2E2", text: "#DC2626" },
+      Hypertension: { bg: "#FED7AA", text: "#C2410C" },
+      Asthma: { bg: "#FCE7F3", text: "#BE185D" },
+      "High Cholesterol": { bg: "#F3E8FF", text: "#7C3AED" },
+      Obesity: { bg: "#FEF3C7", text: "#B45309" },
     };
-    return colorMap[condition] || { bg: '#E5E7EB', text: '#6B7280' };
+    return colorMap[condition] || { bg: "#E5E7EB", text: "#6B7280" };
   };
 
   const getTrendIcon = (trend: string) => {
     switch (trend) {
-      case 'up':
+      case "up":
         return <Ionicons name="trending-up" size={16} color="#10B981" />;
-      case 'down':
+      case "down":
         return <Ionicons name="trending-down" size={16} color="#EF4444" />;
       default:
         return <Ionicons name="remove" size={16} color="#9CA3AF" />;
@@ -150,9 +96,9 @@ export default function MyPatientsScreen() {
   };
 
   const getAdherenceColor = (adherence: number) => {
-    if (adherence >= 80) return '#10B981';
-    if (adherence >= 60) return '#F59E0B';
-    return '#EF4444';
+    if (adherence >= 80) return "#10B981";
+    if (adherence >= 60) return "#F59E0B";
+    return "#EF4444";
   };
 
   const renderPatientCard = (patient: Patient) => (
@@ -190,7 +136,7 @@ export default function MyPatientsScreen() {
 
   const renderPatientRow = (patient: Patient) => {
     const adherenceColor = getAdherenceColor(patient.adherence);
-    
+
     return (
       <View key={patient.id} style={styles.tableRow}>
         <View style={styles.tableCell}>
@@ -213,7 +159,10 @@ export default function MyPatientsScreen() {
               <View
                 style={[
                   styles.progressBarFill,
-                  { width: `${patient.adherence}%`, backgroundColor: adherenceColor },
+                  {
+                    width: `${patient.adherence}%`,
+                    backgroundColor: adherenceColor,
+                  },
                 ]}
               />
             </View>
@@ -231,9 +180,7 @@ export default function MyPatientsScreen() {
           )}
         </View>
 
-        <View style={styles.tableCell}>
-          {getTrendIcon(patient.trend)}
-        </View>
+        <View style={styles.tableCell}>{getTrendIcon(patient.trend)}</View>
 
         <View style={styles.tableCell}>
           <View style={styles.actionsContainer}>
@@ -259,7 +206,9 @@ export default function MyPatientsScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>My Patients</Text>
-            <Text style={styles.headerSubtitle}>Manage and monitor your patient roster</Text>
+            <Text style={styles.headerSubtitle}>
+              Manage and monitor your patient roster
+            </Text>
           </View>
         </View>
 
@@ -298,29 +247,35 @@ export default function MyPatientsScreen() {
         {/* View Toggle */}
         <View style={styles.viewToggle}>
           <TouchableOpacity
-            style={[styles.viewButton, viewMode === 'list' && styles.viewButtonActive]}
-            onPress={() => setViewMode('list')}
+            style={[
+              styles.viewButton,
+              viewMode === "list" && styles.viewButtonActive,
+            ]}
+            onPress={() => setViewMode("list")}
           >
             <Ionicons
               name="list"
               size={20}
-              color={viewMode === 'list' ? '#3B82F6' : '#9CA3AF'}
+              color={viewMode === "list" ? "#3B82F6" : "#9CA3AF"}
             />
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.viewButton, viewMode === 'table' && styles.viewButtonActive]}
-            onPress={() => setViewMode('table')}
+            style={[
+              styles.viewButton,
+              viewMode === "table" && styles.viewButtonActive,
+            ]}
+            onPress={() => setViewMode("table")}
           >
             <Ionicons
               name="grid"
               size={20}
-              color={viewMode === 'table' ? '#3B82F6' : '#9CA3AF'}
+              color={viewMode === "table" ? "#3B82F6" : "#9CA3AF"}
             />
           </TouchableOpacity>
         </View>
 
         {/* Patient List or Table */}
-        {viewMode === 'list' ? (
+        {viewMode === "list" ? (
           <View style={styles.patientsList}>
             {patients.map(renderPatientCard)}
           </View>
@@ -348,17 +303,19 @@ export default function MyPatientsScreen() {
       <View style={styles.bottomNavigation}>
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push({ pathname: '/(tabs)/dochome', params: { doctorName } })}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/dochome", params: { doctorName } })
+          }
         >
           <Ionicons
             name="grid"
             size={24}
-            color={selectedTab === 'dashboard' ? '#3B82F6' : '#9CA3AF'}
+            color={selectedTab === "dashboard" ? "#3B82F6" : "#9CA3AF"}
           />
           <Text
             style={[
               styles.navLabel,
-              selectedTab === 'dashboard' && { color: '#3B82F6' },
+              selectedTab === "dashboard" && { color: "#3B82F6" },
             ]}
           >
             Dashboard
@@ -367,12 +324,16 @@ export default function MyPatientsScreen() {
 
         <TouchableOpacity style={styles.navItem}>
           <Ionicons name="people" size={24} color="#3B82F6" />
-          <Text style={[styles.navLabel, { color: '#3B82F6' }]}>My Patients</Text>
+          <Text style={[styles.navLabel, { color: "#3B82F6" }]}>
+            My Patients
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push({ pathname: '/(tabs)/alerts', params: { doctorName } })}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/alerts", params: { doctorName } })
+          }
         >
           <View style={styles.navIconWithBadge}>
             <Ionicons name="alert-circle" size={24} color="#9CA3AF" />
@@ -385,7 +346,12 @@ export default function MyPatientsScreen() {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push({ pathname: '/(tabs)/docplans', params: { doctorName } })}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/docplans",
+              params: { doctorName },
+            })
+          }
         >
           <Ionicons name="clipboard" size={24} color="#9CA3AF" />
           <Text style={styles.navLabel}>Plans</Text>
@@ -403,37 +369,37 @@ export default function MyPatientsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
   },
   scrollContent: {
     paddingBottom: 100,
   },
   header: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 20,
     paddingVertical: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   searchSection: {
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
   },
   searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -442,21 +408,21 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: '#111827',
+    color: "#111827",
   },
   filtersSection: {
-    flexDirection: 'row',
+    flexDirection: "row",
     paddingHorizontal: 20,
     paddingVertical: 12,
     gap: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
   filterDropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -464,8 +430,8 @@ const styles = StyleSheet.create({
   },
   filterText: {
     fontSize: 13,
-    color: '#374151',
-    fontWeight: '500',
+    color: "#374151",
+    fontWeight: "500",
   },
   countSection: {
     paddingHorizontal: 20,
@@ -473,11 +439,11 @@ const styles = StyleSheet.create({
   },
   patientCount: {
     fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '500',
+    color: "#6B7280",
+    fontWeight: "500",
   },
   viewToggle: {
-    flexDirection: 'row',
+    flexDirection: "row",
     paddingHorizontal: 20,
     marginBottom: 16,
     gap: 8,
@@ -485,37 +451,37 @@ const styles = StyleSheet.create({
   viewButton: {
     padding: 8,
     borderRadius: 8,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
   },
   viewButtonActive: {
-    backgroundColor: '#DBEAFE',
+    backgroundColor: "#DBEAFE",
   },
   patientsList: {
     paddingHorizontal: 16,
     gap: 12,
   },
   patientCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
   patientHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 12,
   },
   avatarContainer: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#DBEAFE',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#DBEAFE",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 12,
   },
   patientInfo: {
@@ -523,21 +489,21 @@ const styles = StyleSheet.create({
   },
   patientName: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: "600",
+    color: "#111827",
     marginBottom: 2,
   },
   patientDetails: {
     fontSize: 13,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   lastActivity: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   conditionsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   conditionTag: {
@@ -547,43 +513,43 @@ const styles = StyleSheet.create({
   },
   conditionText: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   tableContainer: {
     paddingHorizontal: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     marginHorizontal: 16,
     borderRadius: 12,
     padding: 12,
   },
   tableHeader: {
-    flexDirection: 'row',
+    flexDirection: "row",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
     marginBottom: 8,
   },
   tableHeaderText: {
     flex: 1,
     fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
-    textTransform: 'uppercase',
+    fontWeight: "600",
+    color: "#6B7280",
+    textTransform: "uppercase",
   },
   tableRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    alignItems: 'center',
+    borderBottomColor: "#F3F4F6",
+    alignItems: "center",
   },
   tableCell: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   tableCellContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     flex: 2,
   },
@@ -591,81 +557,81 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#DBEAFE',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#DBEAFE",
+    justifyContent: "center",
+    alignItems: "center",
   },
   tableName: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: "600",
+    color: "#111827",
   },
   tableSubtext: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   adherenceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   progressBarBackground: {
     flex: 1,
     height: 6,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
     borderRadius: 3,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   progressBarFill: {
-    height: '100%',
+    height: "100%",
     borderRadius: 3,
   },
   adherenceText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: "600",
+    color: "#374151",
     minWidth: 35,
   },
   alertBadge: {
-    backgroundColor: '#EF4444',
+    backgroundColor: "#EF4444",
     width: 24,
     height: 24,
     borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   alertBadgeText: {
     fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   noAlerts: {
     fontSize: 14,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   actionsContainer: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   actionButton: {
     padding: 6,
-    backgroundColor: '#DBEAFE',
+    backgroundColor: "#DBEAFE",
     borderRadius: 6,
   },
   bottomSpacer: {
     height: 20,
   },
   bottomNavigation: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: "#E5E7EB",
     paddingBottom: 8,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -673,33 +639,33 @@ const styles = StyleSheet.create({
   },
   navItem: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 12,
   },
   navIconWithBadge: {
-    position: 'relative',
+    position: "relative",
   },
   navBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: -4,
     right: -8,
-    backgroundColor: '#EF4444',
+    backgroundColor: "#EF4444",
     borderRadius: 8,
     width: 16,
     height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   navBadgeText: {
     fontSize: 9,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   navLabel: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
     marginTop: 4,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

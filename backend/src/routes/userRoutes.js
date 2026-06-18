@@ -8,21 +8,24 @@ router.post("/profile", async (req, res) => {
     const { email, profile } = req.body;
 
     if (!email || !profile) {
-      return res.status(400).json({ message: "Email and profile are required." });
+      return res
+        .status(400)
+        .json({ message: "Email and profile are required." });
     }
 
     const db = await getDb();
     const users = db.collection("users");
+    const normalizedEmail = email.toLowerCase();
 
     const result = await users.findOneAndUpdate(
-      { email: email.toLowerCase() },
+      { email: normalizedEmail },
       {
         $set: {
           profile,
           updatedAt: new Date(),
         },
         $setOnInsert: {
-          email: email.toLowerCase(),
+          email: normalizedEmail,
           createdAt: new Date(),
           isVerified: true,
         },
@@ -30,18 +33,20 @@ router.post("/profile", async (req, res) => {
       {
         upsert: true,
         returnDocument: "after",
-      }
+      },
     );
 
     return res.json({
       message: "Profile saved.",
       user: {
-        email: result.email,
-        ...result.profile,
+        email: result.value?.email || normalizedEmail,
+        ...(result.value?.profile || profile),
       },
     });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to save profile.", error: String(error) });
+    return res
+      .status(500)
+      .json({ message: "Failed to save profile.", error: String(error) });
   }
 });
 
@@ -50,28 +55,36 @@ router.post("/subscriptions", async (req, res) => {
     const { email, subscription } = req.body;
 
     if (!email || !subscription) {
-      return res.status(400).json({ message: "Email and subscription are required." });
+      return res
+        .status(400)
+        .json({ message: "Email and subscription are required." });
     }
 
     const db = await getDb();
     const users = db.collection("users");
+    const normalizedEmail = email.toLowerCase();
 
     const normalizedSubscription = {
-      id: subscription.id || `${subscription.professionalTitle}-${subscription.planName}`,
+      id:
+        subscription.id ||
+        `${subscription.professionalTitle}-${subscription.planName}`,
       professionalId: subscription.professionalId || null,
       professionalTitle: subscription.professionalTitle || "Professional Plan",
       planName: subscription.planName || "Selected Plan",
       amount: Number(subscription.amount || 0),
       period: subscription.period || "per month",
       subscribedAt: new Date(),
-      selectedDoctorName: subscription.selectedDoctorName || subscription.professionalTitle || null,
+      selectedDoctorName:
+        subscription.selectedDoctorName ||
+        subscription.professionalTitle ||
+        null,
     };
 
     await users.updateOne(
-      { email: email.toLowerCase() },
+      { email: normalizedEmail },
       {
         $setOnInsert: {
-          email: email.toLowerCase(),
+          email: normalizedEmail,
           createdAt: new Date(),
           isVerified: true,
         },
@@ -86,18 +99,25 @@ router.post("/subscriptions", async (req, res) => {
           updatedAt: new Date(),
         },
       },
-      { upsert: true }
+      { upsert: true },
     );
 
-    return res.status(201).json({ message: "Subscription saved.", subscription: normalizedSubscription });
+    return res
+      .status(201)
+      .json({
+        message: "Subscription saved.",
+        subscription: normalizedSubscription,
+      });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to save subscription.", error: String(error) });
+    return res
+      .status(500)
+      .json({ message: "Failed to save subscription.", error: String(error) });
   }
 });
 
-router.get("/:email", async (req, res) => {
+router.get(":email", async (req, res) => {
   try {
-    const email = (req.params.email || '').toLowerCase();
+    const email = (req.params.email || "").toLowerCase();
     if (!email) {
       return res.status(400).json({ message: "Email is required." });
     }
@@ -110,7 +130,6 @@ router.get("/:email", async (req, res) => {
       return res.status(404).json({ message: "User not found." });
     }
 
-    // Return non-sensitive user fields only
     const safeUser = {
       email: user.email,
       phone: user.phone,
@@ -122,11 +141,13 @@ router.get("/:email", async (req, res) => {
 
     return res.json({ user: safeUser });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to fetch user.", error: String(error) });
+    return res
+      .status(500)
+      .json({ message: "Failed to fetch user.", error: String(error) });
   }
 });
 
-router.get("/:email/subscriptions", async (req, res) => {
+router.get(":email/subscriptions", async (req, res) => {
   try {
     const email = (req.params.email || "").toLowerCase();
     if (!email) {
@@ -143,7 +164,12 @@ router.get("/:email/subscriptions", async (req, res) => {
 
     return res.json({ subscriptions: user.subscriptions || [] });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to fetch subscriptions.", error: String(error) });
+    return res
+      .status(500)
+      .json({
+        message: "Failed to fetch subscriptions.",
+        error: String(error),
+      });
   }
 });
 
