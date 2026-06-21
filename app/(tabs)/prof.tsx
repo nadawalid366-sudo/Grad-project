@@ -11,7 +11,7 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { getUserByEmail } from "../../services/api";
+import { fetchUserSubscriptions, getUserByEmail, type UserSubscription } from "../../services/api";
 import { signOut } from "../../services/auth";
 
 type ProfileDetailsSection =
@@ -128,13 +128,46 @@ export default function ProfileSettings() {
 
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [subscriptions, setSubscriptions] = useState<UserSubscription[]>([]);
 
-  const healthcareTeam: {
-    id: number;
-    name: string;
-    specialty: string;
-    since: string;
-  }[] = [];
+  useEffect(() => {
+    if (!userEmail) {
+      return;
+    }
+
+    let active = true;
+
+    fetchUserSubscriptions(userEmail)
+      .then((response) => {
+        if (!active) return;
+        const all = Array.isArray(response.subscriptions)
+          ? response.subscriptions
+          : [];
+        // Keep only one entry per professional (guards against legacy duplicates).
+        const seen = new Set<string>();
+        const unique = all.filter((sub) => {
+          const key = String(sub.professionalId || sub.id || sub.professionalTitle);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setSubscriptions(unique);
+      })
+      .catch((error) => {
+        console.log("Failed to load subscriptions:", error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [userEmail]);
+
+  const healthcareTeam = subscriptions.map((sub) => ({
+    id: sub.id,
+    name: sub.selectedDoctorName || sub.professionalTitle || "Healthcare Professional",
+    specialty: sub.planName,
+    since: sub.period || "",
+  }));
 
   const handleLogout = () => {
     setShowLogoutModal(true);

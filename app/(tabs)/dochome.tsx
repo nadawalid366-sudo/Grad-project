@@ -12,6 +12,7 @@ import {
     View,
 } from "react-native";
 import { fetchDoctorDashboard, saveDoctorPlan } from "../../services/api";
+import { useBlockBack } from "../../hooks/use-block-back";
 
 interface MetricCard {
   id: string;
@@ -52,6 +53,8 @@ interface CreatedPlan {
 export default function DoctorDashboard() {
   const { doctorName: doctorNameParam, email: emailParam } = useLocalSearchParams<{ doctorName?: string; email?: string }>();
   const router = useRouter();
+  // Dashboard is a root screen — block the hardware back button.
+  useBlockBack();
   const [doctorName, setDoctorName] = useState("Doctor");
   const [doctorEmail, setDoctorEmail] = useState("doctor@example.com");
   const [searchQuery, setSearchQuery] = useState("");

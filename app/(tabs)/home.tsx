@@ -18,6 +18,7 @@ import {
     savePatientLog,
     savePatientMetrics,
 } from "../../services/api";
+import { useBlockBack } from "../../hooks/use-block-back";
 
 type WaterUnit = "cups" | "litres";
 
@@ -120,6 +121,8 @@ interface QuickLogEntry {
 export default function DashboardHome() {
   const params = useLocalSearchParams<{ fullName?: string; age?: string; height?: string; weight?: string; email?: string }>();
   const router = useRouter();
+  // Dashboard is a root screen — block the hardware back button.
+  useBlockBack();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [userName, setUserName] = useState("User");
   const [userData, setUserData] = useState<any>(null);
