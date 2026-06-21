@@ -1,7 +1,11 @@
+import bcrypt from "bcryptjs";
 import express from "express";
+import { signToken } from "../auth/jwt.js";
 import { getDb } from "../db/mongoClient.js";
 
 const router = express.Router();
+
+const isHashed = (value = "") => typeof value === "string" && value.startsWith("$2");
 
 router.post("/register", async (req, res) => {
   try {
@@ -23,18 +27,27 @@ router.post("/register", async (req, res) => {
     }
 
     const now = new Date();
+    const passwordHash = await bcrypt.hash(password, 10);
     const result = await users.insertOne({
       email: normalizedEmail,
       phone,
-      password,
+      password: passwordHash,
       isVerified: true,
       createdAt: now,
       updatedAt: now,
     });
 
+    const userId = result.insertedId.toString();
+    const token = signToken({
+      sub: userId,
+      email: normalizedEmail,
+      role: "patient",
+    });
+
     return res.status(201).json({
       message: "Account created.",
-      userId: result.insertedId.toString(),
+      token,
+      userId,
       email: normalizedEmail,
     });
   } catch (error) {
@@ -58,15 +71,41 @@ router.post("/login", async (req, res) => {
     const users = db.collection("users");
     const normalizedEmail = email.toLowerCase();
 
-    const user = await users.findOne({ email: normalizedEmail, password });
+    const user = await users.findOne({ email: normalizedEmail });
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials." });
     }
 
+    // Verify password. Legacy accounts stored plaintext: compare directly and
+    // transparently upgrade to a bcrypt hash on successful login.
+    let passwordOk;
+    if (isHashed(user.password)) {
+      passwordOk = await bcrypt.compare(password, user.password);
+    } else {
+      passwordOk = user.password === password;
+      if (passwordOk) {
+        const passwordHash = await bcrypt.hash(password, 10);
+        await users.updateOne(
+          { _id: user._id },
+          { $set: { password: passwordHash, updatedAt: new Date() } },
+        );
+      }
+    }
+
+    if (!passwordOk) {
+      return res.status(401).json({ message: "Invalid credentials." });
+    }
+
     const profile = user.profile || {};
+    const token = signToken({
+      sub: user._id.toString(),
+      email: user.email,
+      role: "patient",
+    });
 
     return res.json({
       message: "Login successful",
+      token,
       user: {
         email: user.email,
         fullName: profile.fullName || "User",

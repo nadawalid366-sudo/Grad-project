@@ -1,6 +1,6 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Animated,
     Modal,
@@ -8,21 +8,49 @@ import {
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from 'react-native';
-import { fetchPatientDashboard } from '../../services/api';
+import { fetchPatientDashboard, savePatientPlan } from '../../services/api';
+
+type PlanType = 'meal' | 'exercise' | 'medication' | 'general';
 
 interface Plan {
   id: string;
-  type: 'meal' | 'exercise' | 'medication';
+  type: PlanType;
   title: string;
   description: string;
   icon: string;
   color: string;
   backgroundColor: string;
+  status?: string;
+  goals?: string[];
+  startDate?: string;
+  assignedByDoctor?: string;
+  createdAt?: string;
   completed?: number;
   total?: number;
+}
+
+const PLAN_TYPE_OPTIONS: {
+  id: PlanType;
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  backgroundColor: string;
+}[] = [
+  { id: 'meal', title: 'Meal Plan', icon: 'restaurant', color: '#F59E0B', backgroundColor: '#FEF3C7' },
+  { id: 'exercise', title: 'Workout Plan', icon: 'fitness', color: '#3B82F6', backgroundColor: '#DBEAFE' },
+  { id: 'medication', title: 'Medication', icon: 'medical', color: '#EC4899', backgroundColor: '#FCE7F3' },
+  { id: 'general', title: 'General', icon: 'sparkles', color: '#10B981', backgroundColor: '#D1FAE5' },
+];
+
+function getPlanVisual(type: PlanType) {
+  return (
+    PLAN_TYPE_OPTIONS.find((option) => option.id === type) ||
+    PLAN_TYPE_OPTIONS[3]
+  );
 }
 
 export default function HealthPlans() {
@@ -35,6 +63,14 @@ export default function HealthPlans() {
   const [selectedLogType, setSelectedLogType] = useState<string>('');
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
+  const [isCreatePlanOpen, setIsCreatePlanOpen] = useState(false);
+  const [newPlanType, setNewPlanType] = useState<PlanType>('meal');
+  const [newPlanTitle, setNewPlanTitle] = useState('');
+  const [newPlanDescription, setNewPlanDescription] = useState('');
+  const [isSavingPlan, setIsSavingPlan] = useState(false);
+
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+
   useEffect(() => {
     setUserData({
       fullName: params.fullName || 'User Name',
@@ -45,39 +81,78 @@ export default function HealthPlans() {
     });
   }, [params.fullName, params.age, params.height, params.weight, params.email]);
 
+  const loadPlans = useCallback(async (email: string) => {
+    try {
+      const response = await fetchPatientDashboard(email);
+      const mappedPlans: Plan[] = (response.plans || []).map(
+        (plan: any, index: number) => {
+          const type: PlanType = plan.type || 'general';
+          const visual = getPlanVisual(type);
+          return {
+            id: plan.id || plan._id || String(index + 1),
+            type,
+            title: plan.title || 'Health Plan',
+            description: plan.description || '',
+            icon: plan.icon || visual.icon,
+            color: plan.color || visual.color,
+            backgroundColor: plan.backgroundColor || visual.backgroundColor,
+            status: plan.status || 'Active',
+            goals: Array.isArray(plan.goals) ? plan.goals : [],
+            startDate: plan.startDate,
+            assignedByDoctor: plan.assignedByDoctor,
+            createdAt: plan.createdAt,
+            completed: plan.completed,
+            total: plan.total,
+          };
+        },
+      );
+      setPlans(mappedPlans);
+    } catch (error) {
+      console.log('Failed to load plans:', error);
+    }
+  }, []);
+
   useEffect(() => {
     const email = userData?.email;
     if (!email) {
       return;
     }
+    loadPlans(email);
+  }, [userData?.email, loadPlans]);
 
-    let active = true;
-    fetchPatientDashboard(email)
-      .then((response) => {
-        if (!active) return;
+  const handleOpenCreatePlan = (type: PlanType) => {
+    setNewPlanType(type);
+    setNewPlanTitle('');
+    setNewPlanDescription('');
+    setIsCreatePlanOpen(true);
+  };
 
-        const mappedPlans = (response.plans || []).map((plan: any, index: number) => ({
-          id: plan.id || plan._id || String(index + 1),
-          type: plan.type || 'meal',
-          title: plan.title || 'Health Plan',
-          description: plan.description || '',
-          icon: plan.icon || 'calendar',
-          color: plan.color || '#3B82F6',
-          backgroundColor: plan.backgroundColor || '#DBEAFE',
-          completed: plan.completed,
-          total: plan.total,
-        }));
+  const handleCloseCreatePlan = () => {
+    if (isSavingPlan) return;
+    setIsCreatePlanOpen(false);
+  };
 
-        setPlans(mappedPlans);
-      })
-      .catch((error) => {
-        console.log('Failed to load plans:', error);
+  const handleSavePlan = async () => {
+    const email = userData?.email;
+    if (!email || !newPlanTitle.trim()) {
+      return;
+    }
+
+    try {
+      setIsSavingPlan(true);
+      await savePatientPlan(email, {
+        title: newPlanTitle.trim(),
+        description: newPlanDescription.trim(),
+        type: newPlanType,
       });
-
-    return () => {
-      active = false;
-    };
-  }, [userData?.email]);
+      setIsCreatePlanOpen(false);
+      await loadPlans(email);
+    } catch (error) {
+      console.log('Failed to save plan:', error);
+    } finally {
+      setIsSavingPlan(false);
+    }
+  };
 
   // Pulsating animation
   useEffect(() => {
@@ -116,41 +191,36 @@ export default function HealthPlans() {
     setVoiceAssistantScreen('confirmation');
   };
 
-  const planCategories = [
-    {
-      id: 'meal',
-      title: 'Meal Plans',
-      icon: 'restaurant',
-      color: '#F59E0B',
-      backgroundColor: '#FEF3C7',
-      description: 'No meal plans yet',
-    },
-    {
-      id: 'exercise',
-      title: 'Exercise Plans',
-      icon: 'fitness',
-      color: '#3B82F6',
-      backgroundColor: '#DBEAFE',
-      description: 'No exercise plans yet',
-    },
-    {
-      id: 'medication',
-      title: 'Medication Schedule',
-      icon: 'medical',
-      color: '#EC4899',
-      backgroundColor: '#FCE7F3',
-      description: 'No medication schedules yet',
-    },
-  ];
-
-  const renderPlanCategory = (category: any) => (
-    <TouchableOpacity key={category.id} style={styles.planCard}>
-      <View style={[styles.planIconContainer, { backgroundColor: category.backgroundColor }]}>
-        <Ionicons name={category.icon} size={28} color={category.color} />
+  const renderPlan = (plan: Plan) => (
+    <TouchableOpacity
+      key={plan.id}
+      style={styles.planCard}
+      activeOpacity={0.7}
+      onPress={() => setSelectedPlan(plan)}
+    >
+      <View style={[styles.planIconContainer, { backgroundColor: plan.backgroundColor }]}>
+        <Ionicons name={plan.icon as any} size={28} color={plan.color} />
       </View>
       <View style={styles.planContent}>
-        <Text style={styles.planTitle}>{category.title}</Text>
-        <Text style={styles.planDescription}>{category.description}</Text>
+        <Text style={styles.planTitle}>{plan.title}</Text>
+        {plan.description ? (
+          <Text style={styles.planDescription} numberOfLines={1}>
+            {plan.description}
+          </Text>
+        ) : null}
+        <View style={styles.planMetaRow}>
+          <View style={[styles.planTypeTag, { backgroundColor: plan.backgroundColor }]}>
+            <Text style={[styles.planTypeTagText, { color: plan.color }]}>
+              {getPlanVisual(plan.type).title}
+            </Text>
+          </View>
+          {plan.assignedByDoctor ? (
+            <View style={styles.doctorTag}>
+              <Ionicons name="medkit" size={11} color="#1D4ED8" />
+              <Text style={styles.doctorTagText}>From your doctor</Text>
+            </View>
+          ) : null}
+        </View>
       </View>
       <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />
     </TouchableOpacity>
@@ -168,28 +238,50 @@ export default function HealthPlans() {
           <Text style={styles.headerSubtitle}>Manage your personalized health journey</Text>
         </View>
 
-        {/* Plan Categories */}
+        {/* Create a new plan */}
         <View style={styles.plansSection}>
-          <Text style={styles.sectionTitle}>Your Plans</Text>
-          {planCategories.map(renderPlanCategory)}
+          <Text style={styles.sectionTitle}>Create a Plan</Text>
+          <View style={styles.createTypeRow}>
+            {PLAN_TYPE_OPTIONS.map((option) => (
+              <TouchableOpacity
+                key={option.id}
+                style={styles.createTypeCard}
+                onPress={() => handleOpenCreatePlan(option.id)}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.createTypeIcon, { backgroundColor: option.backgroundColor }]}>
+                  <Ionicons name={option.icon} size={24} color={option.color} />
+                </View>
+                <Text style={styles.createTypeLabel}>{option.title}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
-        {/* Empty State */}
-        {plans.length === 0 && (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIconContainer}>
-              <MaterialCommunityIcons name="calendar-check" size={64} color="#D1D5DB" />
+        {/* Your Plans */}
+        <View style={styles.plansSection}>
+          <Text style={styles.sectionTitle}>Your Plans</Text>
+          {plans.length > 0 ? (
+            plans.map(renderPlan)
+          ) : (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyIconContainer}>
+                <MaterialCommunityIcons name="calendar-check" size={64} color="#D1D5DB" />
+              </View>
+              <Text style={styles.emptyStateTitle}>No active plans yet</Text>
+              <Text style={styles.emptyStateText}>
+                Start creating personalized health plans to track your goals
+              </Text>
+              <TouchableOpacity
+                style={styles.createPlanButton}
+                onPress={() => handleOpenCreatePlan('meal')}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#3B82F6" />
+                <Text style={styles.createPlanText}>Create Your First Plan</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.emptyStateTitle}>No active plans yet</Text>
-            <Text style={styles.emptyStateText}>
-              Start creating personalized health plans to track your goals
-            </Text>
-            <TouchableOpacity style={styles.createPlanButton}>
-              <Ionicons name="add-circle-outline" size={20} color="#3B82F6" />
-              <Text style={styles.createPlanText}>Create Your First Plan</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+          )}
+        </View>
 
         {/* Professional Guidance Box */}
         <View style={styles.professionalGuidanceBox}>
@@ -242,6 +334,175 @@ export default function HealthPlans() {
           <Text style={styles.navLabel}>Profile</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Plan Details Modal */}
+      <Modal
+        visible={selectedPlan !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedPlan(null)}
+      >
+        <View style={styles.createModalOverlay}>
+          <View style={styles.createModalContent}>
+            <View style={styles.createModalHeader}>
+              <Text style={styles.createModalTitle}>Plan Details</Text>
+              <TouchableOpacity onPress={() => setSelectedPlan(null)}>
+                <Ionicons name="close" size={26} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            {selectedPlan ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={styles.detailHeaderRow}>
+                  <View
+                    style={[
+                      styles.planIconContainer,
+                      { backgroundColor: selectedPlan.backgroundColor },
+                    ]}
+                  >
+                    <Ionicons
+                      name={selectedPlan.icon as any}
+                      size={28}
+                      color={selectedPlan.color}
+                    />
+                  </View>
+                  <View style={styles.flexShrink}>
+                    <Text style={styles.detailTitle}>{selectedPlan.title}</Text>
+                    <Text style={styles.detailType}>
+                      {getPlanVisual(selectedPlan.type).title}
+                    </Text>
+                  </View>
+                </View>
+
+                {selectedPlan.assignedByDoctor ? (
+                  <View style={styles.detailDoctorBanner}>
+                    <Ionicons name="medkit" size={16} color="#1D4ED8" />
+                    <Text style={styles.detailDoctorText}>
+                      Assigned by your doctor ({selectedPlan.assignedByDoctor})
+                    </Text>
+                  </View>
+                ) : null}
+
+                <Text style={styles.planDetailLabel}>Status</Text>
+                <Text style={styles.planDetailValue}>
+                  {selectedPlan.status || 'Active'}
+                </Text>
+
+                {selectedPlan.startDate ? (
+                  <>
+                    <Text style={styles.planDetailLabel}>Start Date</Text>
+                    <Text style={styles.planDetailValue}>
+                      {selectedPlan.startDate}
+                    </Text>
+                  </>
+                ) : null}
+
+                <Text style={styles.planDetailLabel}>Description</Text>
+                <Text style={styles.planDetailValue}>
+                  {selectedPlan.description || 'No description provided.'}
+                </Text>
+
+                {selectedPlan.goals && selectedPlan.goals.length > 0 ? (
+                  <>
+                    <Text style={styles.planDetailLabel}>Goals</Text>
+                    {selectedPlan.goals.map((goal, index) => (
+                      <View key={index} style={styles.goalRow}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={16}
+                          color="#10B981"
+                        />
+                        <Text style={styles.goalText}>{goal}</Text>
+                      </View>
+                    ))}
+                  </>
+                ) : null}
+
+                <TouchableOpacity
+                  style={styles.savePlanButton}
+                  onPress={() => setSelectedPlan(null)}
+                >
+                  <Text style={styles.savePlanButtonText}>Close</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Create Plan Modal */}
+      <Modal
+        visible={isCreatePlanOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseCreatePlan}
+      >
+        <View style={styles.createModalOverlay}>
+          <View style={styles.createModalContent}>
+            <View style={styles.createModalHeader}>
+              <Text style={styles.createModalTitle}>New Plan</Text>
+              <TouchableOpacity onPress={handleCloseCreatePlan}>
+                <Ionicons name="close" size={26} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.fieldLabel}>Type</Text>
+            <View style={styles.typeChipRow}>
+              {PLAN_TYPE_OPTIONS.map((option) => {
+                const active = newPlanType === option.id;
+                return (
+                  <TouchableOpacity
+                    key={option.id}
+                    style={[
+                      styles.typeChip,
+                      active && { backgroundColor: option.color, borderColor: option.color },
+                    ]}
+                    onPress={() => setNewPlanType(option.id)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.typeChipText, active && styles.typeChipTextActive]}>
+                      {option.title}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={styles.fieldLabel}>Title</Text>
+            <TextInput
+              style={styles.createInput}
+              placeholder="e.g. Morning workout routine"
+              placeholderTextColor="#9CA3AF"
+              value={newPlanTitle}
+              onChangeText={setNewPlanTitle}
+            />
+
+            <Text style={styles.fieldLabel}>Description</Text>
+            <TextInput
+              style={[styles.createInput, styles.createInputMultiline]}
+              placeholder="Describe your goals, schedule, details..."
+              placeholderTextColor="#9CA3AF"
+              value={newPlanDescription}
+              onChangeText={setNewPlanDescription}
+              multiline
+              textAlignVertical="top"
+            />
+
+            <TouchableOpacity
+              style={[
+                styles.savePlanButton,
+                (!newPlanTitle.trim() || isSavingPlan) && styles.savePlanButtonDisabled,
+              ]}
+              onPress={handleSavePlan}
+              disabled={!newPlanTitle.trim() || isSavingPlan}
+            >
+              <Text style={styles.savePlanButtonText}>
+                {isSavingPlan ? 'Saving...' : 'Save Plan'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Voice Assistant Modal */}
       <Modal
@@ -399,6 +660,211 @@ const styles = StyleSheet.create({
   planDescription: {
     fontSize: 13,
     color: '#6B7280',
+  },
+  planMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  planTypeTag: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  planTypeTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  doctorTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  doctorTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1D4ED8',
+  },
+  detailHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  flexShrink: {
+    flexShrink: 1,
+  },
+  detailTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  detailType: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  detailDoctorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  detailDoctorText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1E3A8A',
+  },
+  planDetailLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6B7280',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  planDetailValue: {
+    fontSize: 15,
+    color: '#111827',
+    lineHeight: 21,
+  },
+  goalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 6,
+  },
+  goalText: {
+    fontSize: 14,
+    color: '#374151',
+    flex: 1,
+  },
+  createTypeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  createTypeCard: {
+    width: '47%',
+    flexGrow: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  createTypeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  createTypeLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    flexShrink: 1,
+  },
+  createModalOverlay: {
+    flex: 1,
+    backgroundColor: '#00000066',
+    justifyContent: 'flex-end',
+  },
+  createModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 32,
+  },
+  createModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  createModalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  typeChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  typeChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F3F4F6',
+  },
+  typeChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  typeChipTextActive: {
+    color: '#FFFFFF',
+  },
+  createInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 15,
+    color: '#111827',
+    backgroundColor: '#F9FAFB',
+  },
+  createInputMultiline: {
+    minHeight: 96,
+  },
+  savePlanButton: {
+    marginTop: 24,
+    backgroundColor: '#3B82F6',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  savePlanButtonDisabled: {
+    backgroundColor: '#BFDBFE',
+  },
+  savePlanButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   emptyState: {
     alignItems: 'center',

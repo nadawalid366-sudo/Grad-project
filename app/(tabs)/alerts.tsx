@@ -379,7 +379,10 @@ export default function AlertsScreen() {
         <TouchableOpacity
           style={styles.navItem}
           onPress={() =>
-            router.push({ pathname: "/(tabs)/dochome", params: { doctorName } })
+            router.push({
+              pathname: "/(tabs)/dochome",
+              params: { doctorName, email: doctorEmail },
+            })
           }
         >
           <Ionicons name="grid" size={24} color="#9CA3AF" />
@@ -391,7 +394,7 @@ export default function AlertsScreen() {
           onPress={() =>
             router.push({
               pathname: "/(tabs)/patients",
-              params: { doctorName },
+              params: { doctorName, email: doctorEmail },
             })
           }
         >
@@ -414,7 +417,7 @@ export default function AlertsScreen() {
           onPress={() =>
             router.push({
               pathname: "/(tabs)/docplans",
-              params: { doctorName },
+              params: { doctorName, email: doctorEmail },
             })
           }
         >

@@ -198,6 +198,16 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="docprof"
+        options={{
+          title: "Doctor Profile",
+          tabBarButton: () => null,
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="person.circle.fill" color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }

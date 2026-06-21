@@ -74,9 +74,21 @@ export default function MessagesPage() {
         const grouped = new Map<string, Doctor & { messages: Message[] }>();
         const flatMessages: Message[] = [];
 
+        const seenSubscriptionKeys = new Set<string>();
         const subscriptionDoctors: Doctor[] = (
           subscriptionsResponse.subscriptions || []
-        ).map((subscription: any, index: number) => ({
+        )
+          .filter((subscription: any) => {
+            const key = String(
+              subscription.professionalId ||
+                subscription.id ||
+                subscription.professionalTitle,
+            );
+            if (seenSubscriptionKeys.has(key)) return false;
+            seenSubscriptionKeys.add(key);
+            return true;
+          })
+          .map((subscription: any, index: number) => ({
           id: String(
             subscription.professionalId ||
               subscription.id ||
@@ -99,7 +111,7 @@ export default function MessagesPage() {
         (messagesResponse.messages || []).forEach(
           (item: any, index: number) => {
             const doctorId = String(item.doctorId || "1");
-            const doctorName = String(item.doctorName || "Dr. Ahmed Hassan");
+            const doctorName = String(item.doctorName || "Care Team");
 
             if (!grouped.has(doctorId)) {
               grouped.set(doctorId, {

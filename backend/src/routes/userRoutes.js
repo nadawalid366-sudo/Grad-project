@@ -1,21 +1,65 @@
 import express from "express";
+import { ObjectId } from "mongodb";
+import { requireSelf } from "../auth/authMiddleware.js";
 import { getDb } from "../db/mongoClient.js";
 
 const router = express.Router();
 
+// Link a subscribing patient to the professional's patient roster so they
+// show up in that doctor's portal. Safe to call repeatedly (upsert).
+async function linkPatientToProfessional(db, professionalId, patientEmail) {
+  if (!professionalId || !ObjectId.isValid(professionalId)) {
+    return;
+  }
+
+  const doctor = await db
+    .collection("doctors")
+    .findOne({ _id: new ObjectId(professionalId) });
+  if (!doctor) {
+    return;
+  }
+
+  const patient = await db.collection("users").findOne({ email: patientEmail });
+  const profile = patient?.profile || {};
+  const patientName =
+    profile.fullName || patientEmail.split("@")[0] || "Patient";
+
+  await db.collection("doctorPatients").updateOne(
+    { doctorEmail: doctor.email, patientEmail },
+    {
+      $set: {
+        name: patientName,
+        age: Number(profile.age) || 0,
+        gender: profile.gender || "",
+        conditions: profile.medicalConditions || [],
+        lastActivity: "Just now",
+        trend: "stable",
+        updatedAt: new Date(),
+      },
+      $setOnInsert: {
+        doctorEmail: doctor.email,
+        patientEmail,
+        adherence: 0,
+        alerts: 0,
+        createdAt: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+}
+
 router.post("/profile", async (req, res) => {
   try {
-    const { email, profile } = req.body;
+    const { profile } = req.body;
 
-    if (!email || !profile) {
-      return res
-        .status(400)
-        .json({ message: "Email and profile are required." });
+    if (!profile) {
+      return res.status(400).json({ message: "Profile is required." });
     }
 
     const db = await getDb();
     const users = db.collection("users");
-    const normalizedEmail = email.toLowerCase();
+    // Identity comes from the verified token, never the request body.
+    const normalizedEmail = req.auth.email;
 
     const result = await users.findOneAndUpdate(
       { email: normalizedEmail },
@@ -52,17 +96,16 @@ router.post("/profile", async (req, res) => {
 
 router.post("/subscriptions", async (req, res) => {
   try {
-    const { email, subscription } = req.body;
+    const { subscription } = req.body;
 
-    if (!email || !subscription) {
-      return res
-        .status(400)
-        .json({ message: "Email and subscription are required." });
+    if (!subscription) {
+      return res.status(400).json({ message: "Subscription is required." });
     }
 
     const db = await getDb();
     const users = db.collection("users");
-    const normalizedEmail = email.toLowerCase();
+    // Identity comes from the verified token, never the request body.
+    const normalizedEmail = req.auth.email;
 
     const normalizedSubscription = {
       id:
@@ -79,6 +122,17 @@ router.post("/subscriptions", async (req, res) => {
         subscription.professionalTitle ||
         null,
     };
+
+    // Remove any prior subscription to the same professional so a patient who
+    // re-subscribes (or taps Pay multiple times) only keeps one entry.
+    const duplicateFilter = normalizedSubscription.professionalId
+      ? { professionalId: normalizedSubscription.professionalId }
+      : { id: normalizedSubscription.id };
+
+    await users.updateOne(
+      { email: normalizedEmail },
+      { $pull: { subscriptions: duplicateFilter } },
+    );
 
     await users.updateOne(
       { email: normalizedEmail },
@@ -102,6 +156,12 @@ router.post("/subscriptions", async (req, res) => {
       { upsert: true },
     );
 
+    await linkPatientToProfessional(
+      db,
+      normalizedSubscription.professionalId,
+      normalizedEmail,
+    );
+
     return res
       .status(201)
       .json({
@@ -115,7 +175,7 @@ router.post("/subscriptions", async (req, res) => {
   }
 });
 
-router.get("/:email", async (req, res) => {
+router.get("/:email", requireSelf(), async (req, res) => {
   try {
     const email = (req.params.email || "").toLowerCase();
     if (!email) {
@@ -147,7 +207,7 @@ router.get("/:email", async (req, res) => {
   }
 });
 
-router.get("/:email/subscriptions", async (req, res) => {
+router.get("/:email/subscriptions", requireSelf(), async (req, res) => {
   try {
     const email = (req.params.email || "").toLowerCase();
     if (!email) {

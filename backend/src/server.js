@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import app from "./app.js";
 import { bootstrapCollections } from "./db/bootstrapCollections.js";
+import { getDb } from "./db/mongoClient.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +17,16 @@ const port = Number(process.env.PORT) || 5001;
 const host = process.env.HOST || "0.0.0.0";
 
 async function startServer() {
+  // Verify the MongoDB connection before accepting traffic.
+  try {
+    const db = await getDb();
+    await db.command({ ping: 1 });
+    console.log(`[mongodb] Connection verified (db: ${db.databaseName})`);
+  } catch (error) {
+    console.error("[mongodb] Failed to connect to MongoDB:", error);
+    process.exit(1);
+  }
+
   await bootstrapCollections();
 
   const server = http.createServer(app);

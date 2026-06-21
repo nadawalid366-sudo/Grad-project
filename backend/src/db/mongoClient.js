@@ -28,6 +28,10 @@ export async function getDb() {
   if (!dbInstance) {
     await client.connect();
     dbInstance = client.db(mongoDbName);
+    await dbInstance.command({ ping: 1 });
+    console.log(
+      `[mongodb] Connected to "${dbInstance.databaseName}" at ${client.options?.hosts?.join(",") || mongoUri}`,
+    );
   }
 
   return dbInstance;

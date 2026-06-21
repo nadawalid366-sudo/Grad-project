@@ -1,6 +1,6 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
     Dimensions,
     SafeAreaView,
@@ -37,23 +37,45 @@ interface AlertTrend {
   color: string;
 }
 
+interface PerformanceMetric {
+  label: string;
+  value: number;
+  color: string;
+}
+
+interface Insight {
+  id: string;
+  text: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+}
+
 export default function Analytics() {
-  const { email: emailParam } = useLocalSearchParams<{ email?: string }>();
+  const { email: emailParam, doctorName: doctorNameParam } =
+    useLocalSearchParams<{ email?: string; doctorName?: string }>();
   const router = useRouter();
+  const doctorNav = { doctorName: doctorNameParam, email: emailParam };
   const [selectedPeriod, setSelectedPeriod] = useState<
     "week" | "month" | "year"
   >("week");
   const [selectedTab, setSelectedTab] = useState("analytics");
   const [analyticsData, setAnalyticsData] = useState<any>(null);
 
-  useEffect(() => {
+  const loadAnalytics = useCallback(async () => {
     const email = emailParam || "doctor@example.com";
+    try {
+      const response = await fetchDoctorAnalytics(email);
+      setAnalyticsData(response);
+    } catch (error) {
+      console.log("Failed to load analytics:", error);
+    }
+  }, [emailParam]);
 
+  useEffect(() => {
     let active = true;
-    fetchDoctorAnalytics(email)
+    fetchDoctorAnalytics(emailParam || "doctor@example.com")
       .then((response) => {
-        if (!active) return;
-        setAnalyticsData(response);
+        if (active) setAnalyticsData(response);
       })
       .catch((error) => {
         console.log("Failed to load analytics:", error);
@@ -69,6 +91,10 @@ export default function Analytics() {
     analyticsData?.patientsByCondition || [];
   const weeklyActivity: ChartData[] = analyticsData?.weeklyActivity || [];
   const alertTrends: AlertTrend[] = analyticsData?.alertTrends || [];
+  const performanceMetrics: PerformanceMetric[] =
+    analyticsData?.performanceMetrics || [];
+  const insights: Insight[] = analyticsData?.insights || [];
+  const totalPatients: number = analyticsData?.totalPatients ?? 0;
 
   const renderStatCard = (stat: StatCard) => (
     <View
@@ -149,7 +175,7 @@ export default function Analytics() {
       <Text style={styles.chartTitle}>Patients by Condition</Text>
       <View style={styles.pieChartContainer}>
         <View style={styles.pieChartCircle}>
-          <Text style={styles.pieChartTotal}>48</Text>
+          <Text style={styles.pieChartTotal}>{totalPatients}</Text>
           <Text style={styles.pieChartLabel}>Total</Text>
         </View>
         <View style={styles.pieLegend}>
@@ -218,7 +244,7 @@ export default function Analytics() {
           <Text style={styles.headerTitle}>Analytics</Text>
           <Text style={styles.headerSubtitle}>Performance Overview</Text>
         </View>
-        <TouchableOpacity style={styles.refreshButton}>
+        <TouchableOpacity style={styles.refreshButton} onPress={loadAnalytics}>
           <Ionicons name="refresh" size={24} color="#3B82F6" />
         </TouchableOpacity>
       </View>
@@ -239,90 +265,49 @@ export default function Analytics() {
         {renderAlertTrends()}
 
         {/* Performance Metrics */}
-        <View style={styles.chartContainer}>
-          <Text style={styles.chartTitle}>Performance Metrics</Text>
-          <View style={styles.metricsContainer}>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Patient Satisfaction</Text>
-              <View style={styles.metricBar}>
-                <View
-                  style={[
-                    styles.metricFill,
-                    { width: "92%", backgroundColor: "#10B981" },
-                  ]}
-                />
-                <Text style={styles.metricValue}>92%</Text>
-              </View>
-            </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Treatment Success Rate</Text>
-              <View style={styles.metricBar}>
-                <View
-                  style={[
-                    styles.metricFill,
-                    { width: "88%", backgroundColor: "#3B82F6" },
-                  ]}
-                />
-                <Text style={styles.metricValue}>88%</Text>
-              </View>
-            </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Follow-up Compliance</Text>
-              <View style={styles.metricBar}>
-                <View
-                  style={[
-                    styles.metricFill,
-                    { width: "76%", backgroundColor: "#F59E0B" },
-                  ]}
-                />
-                <Text style={styles.metricValue}>76%</Text>
-              </View>
-            </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Alert Response Rate</Text>
-              <View style={styles.metricBar}>
-                <View
-                  style={[
-                    styles.metricFill,
-                    { width: "95%", backgroundColor: "#8B5CF6" },
-                  ]}
-                />
-                <Text style={styles.metricValue}>95%</Text>
-              </View>
+        {performanceMetrics.length > 0 && (
+          <View style={styles.chartContainer}>
+            <Text style={styles.chartTitle}>Performance Metrics</Text>
+            <View style={styles.metricsContainer}>
+              {performanceMetrics.map((metric) => (
+                <View key={metric.label} style={styles.metricRow}>
+                  <Text style={styles.metricLabel}>{metric.label}</Text>
+                  <View style={styles.metricBar}>
+                    <View
+                      style={[
+                        styles.metricFill,
+                        {
+                          width: `${Math.min(Math.max(metric.value, 0), 100)}%`,
+                          backgroundColor: metric.color,
+                        },
+                      ]}
+                    />
+                    <Text style={styles.metricValue}>{metric.value}%</Text>
+                  </View>
+                </View>
+              ))}
             </View>
           </View>
-        </View>
+        )}
 
-        {/* Recent Insights */}
-        <View style={styles.chartContainer}>
-          <Text style={styles.chartTitle}>Key Insights</Text>
-          <View style={styles.insightsContainer}>
-            <View style={styles.insightItem}>
-              <Ionicons name="trending-up" size={20} color="#10B981" />
-              <Text style={styles.insightText}>
-                Patient engagement increased by 24% this month
-              </Text>
-            </View>
-            <View style={styles.insightItem}>
-              <Ionicons name="time-outline" size={20} color="#3B82F6" />
-              <Text style={styles.insightText}>
-                Average response time improved by 18%
-              </Text>
-            </View>
-            <View style={styles.insightItem}>
-              <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-              <Text style={styles.insightText}>
-                156 alerts successfully resolved this week
-              </Text>
-            </View>
-            <View style={styles.insightItem}>
-              <Ionicons name="people" size={20} color="#F59E0B" />
-              <Text style={styles.insightText}>
-                12 new patients added this month
-              </Text>
+        {/* Key Insights */}
+        {insights.length > 0 && (
+          <View style={styles.chartContainer}>
+            <Text style={styles.chartTitle}>Key Insights</Text>
+            <View style={styles.insightsContainer}>
+              {insights.map((insight) => (
+                <View key={insight.id} style={styles.insightItem}>
+                  <Ionicons
+                    name={insight.icon}
+                    size={20}
+                    color={insight.color}
+                  />
+                  <Text style={styles.insightText}>{insight.text}</Text>
+                </View>
+              ))}
             </View>
           </View>
-        </View>
+        )}
 
         <View style={{ height: 100 }} />
       </ScrollView>
@@ -331,7 +316,9 @@ export default function Analytics() {
       <View style={styles.bottomNavigation}>
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push("/(tabs)/dochome")}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/dochome", params: doctorNav })
+          }
         >
           <Ionicons
             name="grid"
@@ -350,7 +337,9 @@ export default function Analytics() {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push("/(tabs)/patients")}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/patients", params: doctorNav })
+          }
         >
           <Ionicons
             name="people"
@@ -369,7 +358,9 @@ export default function Analytics() {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push("/(tabs)/alerts")}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/alerts", params: doctorNav })
+          }
         >
           <Ionicons
             name="alert-circle"
@@ -388,7 +379,9 @@ export default function Analytics() {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push("/(tabs)/docplans")}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/docplans", params: doctorNav })
+          }
         >
           <Ionicons
             name="clipboard"

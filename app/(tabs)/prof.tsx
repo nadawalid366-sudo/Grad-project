@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
     Alert,
+    Modal,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -11,6 +12,7 @@ import {
     View,
 } from "react-native";
 import { getUserByEmail } from "../../services/api";
+import { signOut } from "../../services/auth";
 
 type ProfileDetailsSection =
   | "personal-information"
@@ -125,43 +127,23 @@ export default function ProfileSettings() {
   ]);
 
   const [expandedSection, setExpandedSection] = useState<string | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  const healthcareTeam = [
-    {
-      id: 1,
-      name: "Dr. Ahmed Hassan",
-      specialty: "Cardiologist",
-      since: "Since Jan 2024",
-    },
-    {
-      id: 2,
-      name: "Dr. Sarah Ahmed",
-      specialty: "Nutritionist",
-      since: "Since Feb 2024",
-    },
-    {
-      id: 3,
-      name: "Coach Mohamed Ali",
-      specialty: "Fitness Coach",
-      since: "Since Mar 2024",
-    },
-  ];
+  const healthcareTeam: {
+    id: number;
+    name: string;
+    specialty: string;
+    since: string;
+  }[] = [];
 
   const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Logout",
-        onPress: () => {
-          // Handle logout logic here
-          console.log("User logged out");
-        },
-        style: "destructive",
-      },
-    ]);
+    setShowLogoutModal(true);
+  };
+
+  const performLogout = async () => {
+    setShowLogoutModal(false);
+    await signOut();
+    router.replace("/(tabs)/splash");
   };
 
   const handleDeleteAccount = () => {
@@ -386,6 +368,11 @@ export default function ProfileSettings() {
 
           {expandedSection === "healthcare" && (
             <View style={styles.healthcareTeamList}>
+              {healthcareTeam.length === 0 && (
+                <Text style={styles.memberSpecialty}>
+                  No professionals added yet.
+                </Text>
+              )}
               {healthcareTeam.map((member) => (
                 <View key={member.id} style={styles.teamMemberCard}>
                   <View style={styles.memberIconContainer}>
@@ -530,6 +517,33 @@ export default function ProfileSettings() {
           <Text style={[styles.navLabel, { color: "#3B82F6" }]}>Profile</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Logout confirmation */}
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.logoutOverlay}>
+          <View style={styles.logoutModalCard}>
+            <MaterialCommunityIcons name="logout" size={36} color="#EF4444" />
+            <Text style={styles.logoutModalTitle}>Log out?</Text>
+            <Text style={styles.logoutModalText}>
+              You&apos;ll need to sign in again to access your account.
+            </Text>
+            <TouchableOpacity
+              style={styles.logoutConfirmButton}
+              onPress={performLogout}
+            >
+              <Text style={styles.logoutConfirmText}>Logout</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowLogoutModal(false)}>
+              <Text style={styles.logoutCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -541,6 +555,54 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: 100,
+  },
+  logoutOverlay: {
+    flex: 1,
+    backgroundColor: "#00000080",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  logoutModalCard: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+  },
+  logoutModalTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  logoutModalText: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  logoutConfirmButton: {
+    backgroundColor: "#EF4444",
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    width: "100%",
+    marginBottom: 12,
+  },
+  logoutConfirmText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  logoutCancelText: {
+    color: "#6B7280",
+    fontSize: 15,
+    fontWeight: "600",
+    paddingVertical: 4,
   },
   profileCard: {
     backgroundColor: "#FFFFFF",

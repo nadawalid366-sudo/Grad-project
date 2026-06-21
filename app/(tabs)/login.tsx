@@ -11,6 +11,8 @@ import {
 } from "react-native";
 import { loginUser } from "../../services/api";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,6 +24,16 @@ export default function LoginScreen() {
   const handleSignInPress = async () => {
     if (!email || !password) {
       alert("Please fill in all fields");
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(email.trim())) {
+      alert("Please enter a valid email address");
+      return;
+    }
+
+    if (password.length < 6) {
+      alert("Password must be at least 6 characters");
       return;
     }
 

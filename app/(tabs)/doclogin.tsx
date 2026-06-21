@@ -9,32 +9,94 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { signInDoctor } from "../../services/api";
+import {
+  loginProfessional,
+  registerProfessional,
+} from "../../services/api";
+
+type ProfessionalType = "doctor" | "nutritionist" | "coach";
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const PROFESSIONAL_TYPES: { value: ProfessionalType; label: string }[] = [
+  { value: "doctor", label: "Doctor" },
+  { value: "nutritionist", label: "Nutritionist" },
+  { value: "coach", label: "Fitness Coach" },
+];
 
 export default function DoctorLoginScreen() {
+  const [mode, setMode] = useState<"signin" | "register">("signin");
   const [doctorName, setDoctorName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [specialty, setSpecialty] = useState("");
+  const [type, setType] = useState<ProfessionalType>("doctor");
   const [passwordVisible, setPasswordVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [language, setLanguage] = useState("en");
   const router = useRouter();
 
-  const handleSignInPress = () => {
-    if (!doctorName || !email || !password) {
-      alert("Please fill in all fields");
+  const isRegister = mode === "register";
+
+  const goToDashboard = (name: string, professionalEmail: string) => {
+    router.replace({
+      pathname: "/(tabs)/dochome",
+      params: { doctorName: name, email: professionalEmail },
+    });
+  };
+
+  const handleSignInPress = async () => {
+    if (isRegister && (!doctorName || !email || !password)) {
+      alert("Please fill in name, email, and password");
       return;
     }
 
-    signInDoctor({ email, doctorName, specialty: "General Practitioner" })
-      .then(() => {
-        router.replace({
-          pathname: "/(tabs)/dochome",
-          params: { doctorName, email },
+    if (!isRegister && (!email || !password)) {
+      alert("Please enter your email and password");
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(email.trim())) {
+      alert("Please enter a valid email address");
+      return;
+    }
+
+    if (password.length < 6) {
+      alert("Password must be at least 6 characters");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+
+      if (isRegister) {
+        const { professional } = await registerProfessional({
+          fullName: doctorName,
+          email,
+          password,
+          type,
+          specialty: specialty || undefined,
         });
-      })
-      .catch((error) => {
-        alert(error instanceof Error ? error.message : "Failed to sign in");
-      });
+        goToDashboard(professional.fullName, professional.email);
+      } else {
+        const { professional } = await loginProfessional({ email, password });
+        goToDashboard(professional.fullName, professional.email);
+      }
+    } catch (error) {
+      alert(
+        error instanceof Error
+          ? error.message
+          : isRegister
+            ? "Failed to create account"
+            : "Failed to sign in",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleMode = () => {
+    setMode(isRegister ? "signin" : "register");
   };
 
   const handleLanguagePress = () => {
@@ -88,31 +150,87 @@ export default function DoctorLoginScreen() {
         {/* Welcome Text */}
         <Text style={styles.title}>Healthcare Professional Portal</Text>
         <Text style={styles.subtitle}>
-          Sign in to access your patient dashboard
+          {isRegister
+            ? "Create your professional account"
+            : "Sign in to access your patient dashboard"}
         </Text>
 
         {/* White Card Container */}
         <View style={styles.card}>
-          {/* Doctor Name Input */}
-          <View style={styles.inputGroup}>
-            <Text style={styles.label}>Full Name</Text>
-            <View style={styles.inputContainer}>
-              <MaterialIcons
-                name="person"
-                size={20}
-                color="#9CA3AF"
-                style={styles.inputIcon}
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Dr. Ahmed Hassan"
-                placeholderTextColor="#9CA3AF"
-                value={doctorName}
-                onChangeText={setDoctorName}
-                autoCapitalize="words"
-              />
+          {/* Doctor Name Input (register only) */}
+          {isRegister && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Full Name</Text>
+              <View style={styles.inputContainer}>
+                <MaterialIcons
+                  name="person"
+                  size={20}
+                  color="#9CA3AF"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Dr. Ahmed Hassan"
+                  placeholderTextColor="#9CA3AF"
+                  value={doctorName}
+                  onChangeText={setDoctorName}
+                  autoCapitalize="words"
+                />
+              </View>
             </View>
-          </View>
+          )}
+
+          {/* Professional Type (register only) */}
+          {isRegister && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>I am a</Text>
+              <View style={styles.typeRow}>
+                {PROFESSIONAL_TYPES.map((option) => {
+                  const active = type === option.value;
+                  return (
+                    <TouchableOpacity
+                      key={option.value}
+                      style={[styles.typeChip, active && styles.typeChipActive]}
+                      onPress={() => setType(option.value)}
+                      activeOpacity={0.8}
+                    >
+                      <Text
+                        style={[
+                          styles.typeChipText,
+                          active && styles.typeChipTextActive,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {/* Specialty (register only) */}
+          {isRegister && (
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Specialty</Text>
+              <View style={styles.inputContainer}>
+                <MaterialIcons
+                  name="medical-services"
+                  size={20}
+                  color="#9CA3AF"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g. Cardiologist, Sports Nutrition"
+                  placeholderTextColor="#9CA3AF"
+                  value={specialty}
+                  onChangeText={setSpecialty}
+                  autoCapitalize="words"
+                />
+              </View>
+            </View>
+          )}
 
           {/* Email Input */}
           <View style={styles.inputGroup}>
@@ -167,18 +285,27 @@ export default function DoctorLoginScreen() {
             </View>
           </View>
 
-          {/* Forgot Password Link */}
-          <TouchableOpacity style={styles.forgotPassword}>
-            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-          </TouchableOpacity>
+          {/* Forgot Password Link (sign in only) */}
+          {!isRegister && (
+            <TouchableOpacity style={styles.forgotPassword}>
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+          )}
 
-          {/* Sign In Button */}
+          {/* Submit Button */}
           <TouchableOpacity
-            style={styles.signInButton}
+            style={[styles.signInButton, submitting && styles.signInButtonDisabled]}
             onPress={handleSignInPress}
             activeOpacity={0.9}
+            disabled={submitting}
           >
-            <Text style={styles.signInButtonText}>Sign In</Text>
+            <Text style={styles.signInButtonText}>
+              {submitting
+                ? "Please wait..."
+                : isRegister
+                  ? "Create Account"
+                  : "Sign In"}
+            </Text>
           </TouchableOpacity>
 
           {/* Divider */}
@@ -188,13 +315,17 @@ export default function DoctorLoginScreen() {
             <View style={styles.dividerLine} />
           </View>
 
-          {/* Register Link */}
+          {/* Register / Sign In Toggle */}
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>
-              Don&apos;t have an account?{" "}
+              {isRegister
+                ? "Already have an account? "
+                : "Don't have an account? "}
             </Text>
-            <TouchableOpacity>
-              <Text style={styles.registerLink}>Register as Professional</Text>
+            <TouchableOpacity onPress={toggleMode}>
+              <Text style={styles.registerLink}>
+                {isRegister ? "Sign In" : "Register as Professional"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -318,12 +449,40 @@ const styles = StyleSheet.create({
     color: "#1E5A96",
     fontWeight: "600",
   },
+  typeRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  typeChip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+  },
+  typeChipActive: {
+    backgroundColor: "#1E5A96",
+    borderColor: "#1E5A96",
+  },
+  typeChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  typeChipTextActive: {
+    color: "white",
+  },
   signInButton: {
     backgroundColor: "#1E5A96",
     borderRadius: 12,
     paddingVertical: 16,
     alignItems: "center",
     marginBottom: 20,
+  },
+  signInButtonDisabled: {
+    opacity: 0.6,
   },
   signInButtonText: {
     color: "white",

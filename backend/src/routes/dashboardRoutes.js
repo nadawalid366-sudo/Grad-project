@@ -1,7 +1,13 @@
 import express from "express";
+import { requireRole, requireSelf } from "../auth/authMiddleware.js";
 import { getDb } from "../db/mongoClient.js";
 
 const router = express.Router();
+
+// Reusable guards: patient routes are self-only; doctor routes additionally
+// require the professional role.
+const patientOnly = requireSelf();
+const doctorOnly = [requireRole("professional"), requireSelf()];
 
 async function getCollectionDocs(
   collectionName,
@@ -14,6 +20,24 @@ async function getCollectionDocs(
   if (Object.keys(sort).length > 0) cursor = cursor.sort(sort);
   if (limit > 0) cursor = cursor.limit(limit);
   return cursor.toArray();
+}
+
+function escapeRegex(value = "") {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function mapPlanTypeToPatientType(planType = "") {
+  const value = planType.toLowerCase();
+  if (value.includes("meal") || value.includes("diet") || value.includes("nutrition")) {
+    return "meal";
+  }
+  if (value.includes("workout") || value.includes("exercise") || value.includes("fitness")) {
+    return "exercise";
+  }
+  if (value.includes("medication") || value.includes("medicine")) {
+    return "medication";
+  }
+  return "general";
 }
 
 function formatTimeAgo(date) {
@@ -89,7 +113,7 @@ function normalizeLogType(type = "", title = "", subtitle = "", note = "") {
   return "symptom";
 }
 
-router.get("/patient/:email", async (req, res) => {
+router.get("/patient/:email", patientOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
     const db = await getDb();
@@ -118,29 +142,39 @@ router.get("/patient/:email", async (req, res) => {
     );
 
     const mealLogs = logs.filter((l) => l.type === "meal").length;
-    const exerciseLogs = logs.filter((l) => l.type === "exercise").length;
     const medicationLogs = logs.filter((l) => l.type === "medication").length;
+
+    // User-editable health metrics (calories, sleep schedule, water intake).
+    // Stored per patient; fall back to computed/default values when unset.
+    const stored = await db.collection("patientMetrics").findOne({ email });
+    const healthMetrics = {
+      calories: {
+        current: stored?.calories?.current ?? mealLogs * 400,
+        goal: stored?.calories?.goal ?? 2000,
+      },
+      sleep: {
+        bedtime: stored?.sleep?.bedtime ?? "23:00",
+        wakeTime: stored?.sleep?.wakeTime ?? "07:00",
+      },
+      water: {
+        amount: stored?.water?.amount ?? 0,
+        unit: stored?.water?.unit ?? "cups",
+        goal:
+          stored?.water?.goal ??
+          (stored?.water?.unit === "litres" ? 2 : 8),
+      },
+    };
 
     const metrics = [
       {
         id: "calories",
         title: "Today's Calories",
-        current: mealLogs * 400,
-        goal: 2000,
+        current: healthMetrics.calories.current,
+        goal: healthMetrics.calories.goal,
         unit: "kcal",
         icon: "flame",
         color: "#10B981",
         backgroundColor: "#DCFCE7",
-      },
-      {
-        id: "activity",
-        title: "Activity Minutes",
-        current: exerciseLogs * 30,
-        goal: 60,
-        unit: "min",
-        icon: "run",
-        color: "#3B82F6",
-        backgroundColor: "#DBEAFE",
       },
       {
         id: "medication",
@@ -204,6 +238,7 @@ router.get("/patient/:email", async (req, res) => {
         phone: user.phone || "",
       },
       metrics,
+      healthMetrics,
       recentActivities,
       quickActions,
       logs,
@@ -221,7 +256,7 @@ router.get("/patient/:email", async (req, res) => {
   }
 });
 
-router.post("/patient/:email/logs", async (req, res) => {
+router.post("/patient/:email/logs", patientOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
     const { type, title, subtitle, note } = req.body;
@@ -252,7 +287,49 @@ router.post("/patient/:email/logs", async (req, res) => {
   }
 });
 
-router.post("/patient/:email/plans", async (req, res) => {
+router.put("/patient/:email/metrics", patientOnly, async (req, res) => {
+  try {
+    const email = req.params.email.toLowerCase();
+    const { calories, sleep, water } = req.body;
+    const db = await getDb();
+
+    const set = { updatedAt: new Date() };
+    if (calories) {
+      set.calories = {
+        current: Number(calories.current) || 0,
+        goal: Number(calories.goal) || 2000,
+      };
+    }
+    if (sleep) {
+      set.sleep = {
+        bedtime: String(sleep.bedtime || "23:00"),
+        wakeTime: String(sleep.wakeTime || "07:00"),
+      };
+    }
+    if (water) {
+      const unit = water.unit === "litres" ? "litres" : "cups";
+      set.water = {
+        amount: Number(water.amount) || 0,
+        unit,
+        goal: Number(water.goal) || (unit === "litres" ? 2 : 8),
+      };
+    }
+
+    await db.collection("patientMetrics").updateOne(
+      { email },
+      { $set: set, $setOnInsert: { email, createdAt: new Date() } },
+      { upsert: true },
+    );
+
+    return res.json({ message: "Health metrics saved." });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: "Failed to save metrics.", error: String(error) });
+  }
+});
+
+router.post("/patient/:email/plans", patientOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
     const { title, description, type } = req.body;
@@ -278,7 +355,7 @@ router.post("/patient/:email/plans", async (req, res) => {
   }
 });
 
-router.get("/doctor/:email", async (req, res) => {
+router.get("/doctor/:email", doctorOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
     const db = await getDb();
@@ -293,7 +370,7 @@ router.get("/doctor/:email", async (req, res) => {
     );
     const patients = await getCollectionDocs(
       "doctorPatients",
-      {},
+      { doctorEmail: email },
       { createdAt: -1 },
       50,
     );
@@ -366,52 +443,7 @@ router.get("/doctor/:email", async (req, res) => {
   }
 });
 
-router.post("/doctor-login", async (req, res) => {
-  try {
-    const { email, doctorName, specialty } = req.body;
-    if (!email || !doctorName) {
-      return res
-        .status(400)
-        .json({ message: "Email and doctorName are required." });
-    }
-
-    const db = await getDb();
-    const doctors = db.collection("doctors");
-    const now = new Date();
-    const normalizedEmail = email.toLowerCase();
-
-    await doctors.updateOne(
-      { email: normalizedEmail },
-      {
-        $set: {
-          email: normalizedEmail,
-          doctorName,
-          specialty: specialty || "General Practitioner",
-          updatedAt: now,
-        },
-        $setOnInsert: {
-          createdAt: now,
-        },
-      },
-      { upsert: true },
-    );
-
-    return res.json({
-      message: "Doctor signed in.",
-      doctor: {
-        email: normalizedEmail,
-        doctorName,
-        specialty: specialty || "General Practitioner",
-      },
-    });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({ message: "Failed to sign in doctor.", error: String(error) });
-  }
-});
-
-router.post("/doctor/:email/plans", async (req, res) => {
+router.post("/doctor/:email/plans", doctorOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
     const {
@@ -442,6 +474,32 @@ router.post("/doctor/:email/plans", async (req, res) => {
       updatedAt: new Date(),
     });
 
+    // If this plan targets one of the doctor's subscribed patients, also surface
+    // it on that patient's Plans page.
+    if (patientName) {
+      const patient = await db.collection("doctorPatients").findOne({
+        doctorEmail: email,
+        name: { $regex: `^${escapeRegex(patientName.trim())}$`, $options: "i" },
+      });
+
+      if (patient?.patientEmail) {
+        await db.collection("patientPlans").insertOne({
+          email: patient.patientEmail,
+          title: planType || "Care Plan",
+          description:
+            description ||
+            (Array.isArray(goals) && goals.length
+              ? `Goals: ${goals.join(", ")}`
+              : ""),
+          type: mapPlanTypeToPatientType(planType),
+          status: status || "Active",
+          assignedByDoctor: email,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+    }
+
     return res
       .status(201)
       .json({
@@ -455,7 +513,7 @@ router.post("/doctor/:email/plans", async (req, res) => {
   }
 });
 
-router.get("/doctor/:email/alerts", async (_req, res) => {
+router.get("/doctor/:email/alerts", doctorOnly, async (_req, res) => {
   try {
     const alerts = await getCollectionDocs(
       "doctorAlerts",
@@ -471,7 +529,10 @@ router.get("/doctor/:email/alerts", async (_req, res) => {
   }
 });
 
-router.patch("/doctor/:email/alerts/:alertId/resolve", async (req, res) => {
+router.patch(
+  "/doctor/:email/alerts/:alertId/resolve",
+  doctorOnly,
+  async (req, res) => {
   try {
     const { alertId } = req.params;
     const db = await getDb();
@@ -491,11 +552,12 @@ router.patch("/doctor/:email/alerts/:alertId/resolve", async (req, res) => {
   }
 });
 
-router.get("/doctor/:email/patients", async (_req, res) => {
+router.get("/doctor/:email/patients", doctorOnly, async (req, res) => {
   try {
+    const email = req.params.email.toLowerCase();
     const patients = await getCollectionDocs(
       "doctorPatients",
-      {},
+      { doctorEmail: email },
       { createdAt: -1 },
       50,
     );
@@ -507,13 +569,13 @@ router.get("/doctor/:email/patients", async (_req, res) => {
   }
 });
 
-router.get("/doctor/:email/analytics", async (req, res) => {
+router.get("/doctor/:email/analytics", doctorOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
 
     const patients = await getCollectionDocs(
       "doctorPatients",
-      {},
+      { doctorEmail: email },
       { createdAt: -1 },
       200,
     );
@@ -600,28 +662,29 @@ router.get("/doctor/:email/analytics", async (req, res) => {
       patientsByCondition.push({ label: "No data", value: 0, percentage: 0 });
     }
 
-    const weeklyActivity = [
-      "Mon",
-      "Tue",
-      "Wed",
-      "Thu",
-      "Fri",
-      "Sat",
-      "Sun",
-    ].map((label) => {
-      const match = activities.filter((activity) => {
-        const diffDays = Math.floor(
-          (new Date() - new Date(activity.createdAt)) / 86400000,
-        );
-        return diffDays >= 0 && diffDays < 7;
+    // Real per-day activity counts for the last 7 calendar days (oldest first).
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const today = new Date();
+    const dailyCounts = [];
+    for (let i = 6; i >= 0; i--) {
+      const dayStart = new Date(today);
+      dayStart.setDate(today.getDate() - i);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayStart.getDate() + 1);
+
+      const count = activities.filter((activity) => {
+        const created = new Date(activity.createdAt);
+        return created >= dayStart && created < dayEnd;
       }).length;
 
-      return {
-        label,
-        value: match,
-        percentage: match > 0 ? Math.min(100, match * 20) : 0,
-      };
-    });
+      dailyCounts.push({ label: dayNames[dayStart.getDay()], value: count });
+    }
+    const maxDailyCount = Math.max(1, ...dailyCounts.map((d) => d.value));
+    const weeklyActivity = dailyCounts.map((d) => ({
+      ...d,
+      percentage: Math.round((d.value / maxDailyCount) * 100),
+    }));
 
     const severityCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
     alerts.forEach((alert) => {
@@ -646,11 +709,108 @@ router.get("/doctor/:email/analytics", async (req, res) => {
       }),
     );
 
+    // Performance metrics derived from real patient/alert/plan records.
+    const adherenceValues = patients
+      .map((p) => Number(p.adherence))
+      .filter((n) => !Number.isNaN(n));
+    const avgAdherence = adherenceValues.length
+      ? Math.round(
+          adherenceValues.reduce((sum, n) => sum + n, 0) /
+            adherenceValues.length,
+        )
+      : 0;
+    const activeRate = totalPatients
+      ? Math.round(
+          (patients.filter((p) => p.adherence > 70).length / totalPatients) *
+            100,
+        )
+      : 0;
+    const alertResolutionRate = alerts.length
+      ? Math.round((resolvedAlerts / alerts.length) * 100)
+      : 0;
+    const planCoverage = totalPatients
+      ? Math.min(100, Math.round((plans.length / totalPatients) * 100))
+      : 0;
+
+    const performanceMetrics = [];
+    if (totalPatients > 0) {
+      performanceMetrics.push(
+        {
+          label: "Average Patient Adherence",
+          value: avgAdherence,
+          color: "#10B981",
+        },
+        { label: "Active Patient Rate", value: activeRate, color: "#3B82F6" },
+        { label: "Care Plan Coverage", value: planCoverage, color: "#F59E0B" },
+      );
+    }
+    if (alerts.length > 0) {
+      performanceMetrics.push({
+        label: "Alert Resolution Rate",
+        value: alertResolutionRate,
+        color: "#8B5CF6",
+      });
+    }
+
+    // Key insights generated from real activity over recent time windows.
+    const now = Date.now();
+    const within = (date, days) => {
+      if (!date) return false;
+      const t = new Date(date).getTime();
+      return !Number.isNaN(t) && now - t <= days * 86400000;
+    };
+    const newPatients30 = patients.filter((p) =>
+      within(p.createdAt, 30),
+    ).length;
+    const resolved7 = alerts.filter(
+      (a) => a.isResolved && within(a.updatedAt || a.createdAt, 7),
+    ).length;
+    const criticalPending = alerts.filter(
+      (a) => !a.isResolved && a.severity === "Critical",
+    ).length;
+
+    const insights = [];
+    if (newPatients30 > 0) {
+      insights.push({
+        id: "new-patients",
+        icon: "people",
+        color: "#F59E0B",
+        text: `${newPatients30} new patient${newPatients30 === 1 ? "" : "s"} added in the last 30 days`,
+      });
+    }
+    if (resolved7 > 0) {
+      insights.push({
+        id: "resolved",
+        icon: "checkmark-circle",
+        color: "#10B981",
+        text: `${resolved7} alert${resolved7 === 1 ? "" : "s"} resolved in the last 7 days`,
+      });
+    }
+    if (criticalPending > 0) {
+      insights.push({
+        id: "critical",
+        icon: "alert-circle",
+        color: "#EF4444",
+        text: `${criticalPending} critical alert${criticalPending === 1 ? "" : "s"} awaiting response`,
+      });
+    }
+    if (avgAdherence > 0) {
+      insights.push({
+        id: "adherence",
+        icon: "trending-up",
+        color: "#3B82F6",
+        text: `Average patient adherence is ${avgAdherence}%`,
+      });
+    }
+
     return res.json({
       stats,
+      totalPatients,
       patientsByCondition,
       weeklyActivity,
       alertTrends,
+      performanceMetrics,
+      insights,
     });
   } catch (error) {
     return res
@@ -659,7 +819,7 @@ router.get("/doctor/:email/analytics", async (req, res) => {
   }
 });
 
-router.get("/messages/:email", async (req, res) => {
+router.get("/messages/:email", patientOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
     const messages = await getCollectionDocs(
@@ -676,7 +836,7 @@ router.get("/messages/:email", async (req, res) => {
   }
 });
 
-router.post("/messages/:email", async (req, res) => {
+router.post("/messages/:email", patientOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
     const { doctorId, doctorName, message } = req.body;

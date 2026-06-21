@@ -11,6 +11,8 @@ import {
 } from "react-native";
 import { registerUser } from "../../services/api";
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function SignUpScreen() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -23,6 +25,16 @@ export default function SignUpScreen() {
   const handleContinuePress = async () => {
     if (!email || !phone || !password) {
       alert("Please fill in all fields");
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(email.trim())) {
+      alert("Please enter a valid email address");
+      return;
+    }
+
+    if (password.length < 6) {
+      alert("Password must be at least 6 characters");
       return;
     }
 

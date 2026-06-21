@@ -1,4 +1,12 @@
 import Constants from "expo-constants";
+import { getToken, signIn, signOut } from "./auth";
+
+// Optional callback the app can register to react to an expired/invalid session
+// (e.g. redirect to the login screen).
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
+}
 
 function resolveApiBaseUrl() {
   const constantsAny = Constants as unknown as {
@@ -6,6 +14,7 @@ function resolveApiBaseUrl() {
       hostUri?: string;
       extra?: { EXPO_PUBLIC_API_URL?: string };
     };
+    expoGoConfig?: { debuggerHost?: string };
     manifest2?: {
       extra?: {
         EXPO_PUBLIC_API_URL?: string;
@@ -15,24 +24,30 @@ function resolveApiBaseUrl() {
     manifest?: {
       extra?: { EXPO_PUBLIC_API_URL?: string };
       debuggerHost?: string;
+      hostUri?: string;
     };
   };
 
-  // Try Expo runtime config first, then environment variable
-  const expoExtraUrl =
+  // Explicit override wins (set EXPO_PUBLIC_API_URL only if you need it).
+  const explicitUrl =
     constantsAny.expoConfig?.extra?.EXPO_PUBLIC_API_URL ||
     constantsAny.manifest2?.extra?.EXPO_PUBLIC_API_URL ||
     constantsAny.manifest?.extra?.EXPO_PUBLIC_API_URL ||
     process.env.EXPO_PUBLIC_API_URL;
 
-  if (expoExtraUrl) {
-    return expoExtraUrl;
+  if (explicitUrl) {
+    return explicitUrl;
   }
 
-  // Detect Expo host IP automatically
+  // Otherwise auto-detect the LAN IP from whatever host the Expo dev server
+  // (Metro) is served on — the phone already reaches that IP, so the backend
+  // on the same machine is reachable at <that-ip>:5001. This keeps working
+  // even when your network/IP changes.
   const hostFromExpo =
     constantsAny.expoConfig?.hostUri ||
+    constantsAny.expoGoConfig?.debuggerHost ||
     constantsAny.manifest2?.extra?.expoGo?.debuggerHost ||
+    constantsAny.manifest?.hostUri ||
     constantsAny.manifest?.debuggerHost;
 
   if (hostFromExpo) {
@@ -44,6 +59,10 @@ function resolveApiBaseUrl() {
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();
+
+if (__DEV__) {
+  console.log(`[api] Using backend base URL: ${API_BASE_URL}`);
+}
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -57,16 +76,29 @@ async function apiRequest<T>(
   const url = `${API_BASE_URL}${path}`;
 
   try {
+    const token = getToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
     const response = await fetch(url, {
       method: options.method || "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
 
     const rawText = await response.text();
     const data = rawText ? JSON.parse(rawText) : {};
+
+    if (response.status === 401) {
+      // Token missing/expired — drop the session and notify the app.
+      await signOut();
+      if (onUnauthorized) onUnauthorized();
+      throw new Error(data?.message || "Your session has expired. Please sign in again.");
+    }
 
     if (!response.ok) {
       throw new Error(data?.message || `Request failed (${response.status})`);
@@ -90,6 +122,7 @@ async function apiRequest<T>(
 
 export type LoginResponse = {
   message: string;
+  token: string;
   user: {
     email: string;
     fullName: string;
@@ -104,20 +137,42 @@ export async function registerUser(payload: {
   phone: string;
   password: string;
 }) {
-  return apiRequest<{ message: string; userId: string; email: string }>(
-    "/api/v1/auth/register",
-    {
-      method: "POST",
-      body: payload,
-    },
-  );
-}
-
-export async function loginUser(payload: { email: string; password: string }) {
-  return apiRequest<LoginResponse>("/api/v1/auth/login", {
+  const result = await apiRequest<{
+    message: string;
+    token: string;
+    userId: string;
+    email: string;
+  }>("/api/v1/auth/register", {
     method: "POST",
     body: payload,
   });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.email,
+      role: "patient",
+      fullName: result.email.split("@")[0],
+    });
+  }
+
+  return result;
+}
+
+export async function loginUser(payload: { email: string; password: string }) {
+  const result = await apiRequest<LoginResponse>("/api/v1/auth/login", {
+    method: "POST",
+    body: payload,
+  });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.user.email,
+      role: "patient",
+      fullName: result.user.fullName || result.user.email.split("@")[0],
+    });
+  }
+
+  return result;
 }
 
 export async function saveUserProfile(payload: {
@@ -206,6 +261,75 @@ export async function fetchProfessionals() {
   return apiRequest<{ professionals: Professional[] }>("/api/v1/professionals");
 }
 
+export type RegisteredProfessional = {
+  id: string;
+  fullName: string;
+  email: string;
+  type: "doctor" | "nutritionist" | "coach";
+  specialty: string;
+  bio?: string;
+  rating: number;
+  reviewCount: number;
+  createdAt?: string;
+};
+
+export async function registerProfessional(payload: {
+  fullName: string;
+  email: string;
+  password: string;
+  type: "doctor" | "nutritionist" | "coach";
+  specialty?: string;
+}) {
+  const result = await apiRequest<{
+    message: string;
+    token: string;
+    professional: RegisteredProfessional;
+  }>("/api/v1/professionals/register", {
+    method: "POST",
+    body: payload,
+  });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.professional.email,
+      role: "professional",
+      fullName: result.professional.fullName,
+    });
+  }
+
+  return result;
+}
+
+export async function loginProfessional(payload: {
+  email: string;
+  password: string;
+}) {
+  const result = await apiRequest<{
+    message: string;
+    token: string;
+    professional: RegisteredProfessional;
+  }>("/api/v1/professionals/login", {
+    method: "POST",
+    body: payload,
+  });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.professional.email,
+      role: "professional",
+      fullName: result.professional.fullName,
+    });
+  }
+
+  return result;
+}
+
+export async function fetchRegisteredProfessionals() {
+  return apiRequest<{ professionals: RegisteredProfessional[] }>(
+    "/api/v1/professionals/registered",
+  );
+}
+
 export async function getUserByEmail(email: string) {
   return apiRequest<{
     user: {
@@ -227,6 +351,11 @@ export type PatientDashboard = {
     phone: string;
   };
   metrics: Record<string, unknown>[];
+  healthMetrics?: {
+    calories: { current: number; goal: number };
+    sleep: { bedtime: string; wakeTime: string };
+    water: { amount: number; unit: "cups" | "litres"; goal: number };
+  };
   recentActivities: Record<string, unknown>[];
   quickActions: Record<string, unknown>[];
   logs: Record<string, unknown>[];
@@ -290,6 +419,23 @@ export async function savePatientLog(
     `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs`,
     {
       method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function savePatientMetrics(
+  email: string,
+  payload: {
+    calories?: { current: number; goal: number };
+    sleep?: { bedtime: string; wakeTime: string };
+    water?: { amount: number; unit: "cups" | "litres"; goal: number };
+  },
+) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/metrics`,
+    {
+      method: "PUT",
       body: payload,
     },
   );
@@ -389,22 +535,4 @@ export async function sendMessage(
       body: payload,
     },
   );
-}
-
-export async function signInDoctor(payload: {
-  email: string;
-  doctorName: string;
-  specialty?: string;
-}) {
-  return apiRequest<{
-    message: string;
-    doctor: {
-      email: string;
-      doctorName: string;
-      specialty: string;
-    };
-  }>("/api/v1/dashboard/doctor-login", {
-    method: "POST",
-    body: payload,
-  });
 }

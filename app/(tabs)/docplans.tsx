@@ -90,104 +90,7 @@ export default function DocPlansScreen() {
     };
   }, [doctorEmail]);
 
-  const [allPlans, setAllPlans] = useState<Plan[]>([
-    {
-      id: "1",
-      patientName: "Ahmed Mohamed",
-      patientAge: 45,
-      planType: "Meal Plan",
-      status: "Active",
-      startDate: "Feb 20, 2026",
-      endDate: "Mar 20, 2026",
-      adherence: 85,
-      description: "Low-carb diabetic meal plan with 1800 cal/day target",
-      goals: ["Reduce blood glucose", "Weight loss", "Improve energy"],
-    },
-    {
-      id: "2",
-      patientName: "Fatima Ali",
-      patientAge: 38,
-      planType: "Workout Plan",
-      status: "Active",
-      startDate: "Feb 15, 2026",
-      endDate: "Apr 15, 2026",
-      adherence: 92,
-      description: "Moderate intensity cardio and strength training",
-      goals: ["Improve cardiovascular health", "Build muscle"],
-    },
-    {
-      id: "3",
-      patientName: "Omar Hassan",
-      patientAge: 52,
-      planType: "Medication Plan",
-      status: "Active",
-      startDate: "Jan 15, 2026",
-      endDate: "Jul 15, 2026",
-      adherence: 78,
-      description: "Daily insulin with meal timing and monitoring",
-      goals: ["Maintain glucose levels", "Prevent complications"],
-    },
-    {
-      id: "4",
-      patientName: "Layla Ahmed",
-      patientAge: 34,
-      planType: "Sleep Plan",
-      status: "Active",
-      startDate: "Feb 25, 2026",
-      endDate: "Apr 25, 2026",
-      adherence: 88,
-      description: "Improve sleep hygiene and establish routine",
-      goals: ["8 hours consistent sleep", "Reduce stress"],
-    },
-    {
-      id: "5",
-      patientName: "Sara Ibrahim",
-      patientAge: 29,
-      planType: "General Health",
-      status: "Active",
-      startDate: "Mar 1, 2026",
-      endDate: "Jun 1, 2026",
-      adherence: 65,
-      description: "Comprehensive lifestyle and wellness program",
-      goals: ["Weight management", "Healthy habits", "Nutrition"],
-    },
-    {
-      id: "6",
-      patientName: "Ahmed Mohamed",
-      patientAge: 45,
-      planType: "Workout Plan",
-      status: "Completed",
-      startDate: "Dec 20, 2025",
-      endDate: "Feb 20, 2026",
-      adherence: 90,
-      description: "Walking and light stretching program",
-      goals: ["Increase activity", "Improve mobility"],
-    },
-    {
-      id: "7",
-      patientName: "Fatima Ali",
-      patientAge: 38,
-      planType: "Meal Plan",
-      status: "Completed",
-      startDate: "Jan 1, 2026",
-      endDate: "Feb 1, 2026",
-      adherence: 88,
-      description: "Heart-healthy DASH diet plan",
-      goals: ["Lower BP", "Reduce sodium"],
-    },
-    {
-      id: "8",
-      patientName: "Layla Ahmed",
-      patientAge: 34,
-      planType: "Medication Plan",
-      status: "Draft",
-      startDate: "Mar 10, 2026",
-      endDate: "Sep 10, 2026",
-      adherence: 0,
-      description: "New asthma management plan with inhaler schedule",
-      goals: ["Control asthma", "Prevent attacks"],
-    },
-  ]);
+  const [allPlans, setAllPlans] = useState<Plan[]>([]);
 
   const renderStatusIcon = (status: PlanStatus) => {
     switch (status) {
@@ -944,7 +847,10 @@ export default function DocPlansScreen() {
         <TouchableOpacity
           style={styles.navItem}
           onPress={() =>
-            router.push({ pathname: "/(tabs)/dochome", params: { doctorName } })
+            router.push({
+              pathname: "/(tabs)/dochome",
+              params: { doctorName, email: doctorEmail },
+            })
           }
         >
           <Ionicons name="grid" size={24} color="#9CA3AF" />
@@ -956,7 +862,7 @@ export default function DocPlansScreen() {
           onPress={() =>
             router.push({
               pathname: "/(tabs)/patients",
-              params: { doctorName },
+              params: { doctorName, email: doctorEmail },
             })
           }
         >
@@ -967,14 +873,14 @@ export default function DocPlansScreen() {
         <TouchableOpacity
           style={styles.navItem}
           onPress={() =>
-            router.push({ pathname: "/(tabs)/alerts", params: { doctorName } })
+            router.push({
+              pathname: "/(tabs)/alerts",
+              params: { doctorName, email: doctorEmail },
+            })
           }
         >
           <View style={styles.navIconWithBadge}>
             <Ionicons name="alert-circle" size={24} color="#9CA3AF" />
-            <View style={styles.navBadge}>
-              <Text style={styles.navBadgeText}>5</Text>
-            </View>
           </View>
           <Text style={styles.navLabel}>Alerts</Text>
         </TouchableOpacity>

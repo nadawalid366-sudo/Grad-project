@@ -96,7 +96,18 @@ export default function ProfileDetailScreen() {
     fetchUserSubscriptions(userEmail)
       .then((response) => {
         if (!active) return;
-        setSubscriptions(Array.isArray(response.subscriptions) ? response.subscriptions : []);
+        const all = Array.isArray(response.subscriptions)
+          ? response.subscriptions
+          : [];
+        // Keep only one entry per professional (guards against legacy duplicates).
+        const seen = new Set<string>();
+        const unique = all.filter((sub) => {
+          const key = String(sub.professionalId || sub.id || sub.professionalTitle);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setSubscriptions(unique);
       })
       .catch((error) => {
         console.log('Failed to load subscriptions:', error);

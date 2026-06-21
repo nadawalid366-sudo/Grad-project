@@ -66,6 +66,7 @@ export default function DoctorDashboard() {
   const [newPlanDescription, setNewPlanDescription] = useState("");
   const [newPlanDuration, setNewPlanDuration] = useState("");
   const [createdPlans] = useState<CreatedPlan[]>([]);
+  const [isNotificationsVisible, setIsNotificationsVisible] = useState(false);
 
   useEffect(() => {
     setDoctorName(doctorNameParam || "Doctor");
@@ -73,6 +74,29 @@ export default function DoctorDashboard() {
   }, [doctorNameParam, emailParam]);
 
   const [dashboardData, setDashboardData] = useState<any>(null);
+  const allAlerts: any[] = dashboardData?.recentAlerts || [];
+  const pendingAlertCount = allAlerts.filter(
+    (alert: any) => !alert?.isResolved,
+  ).length;
+
+  // Build the notification feed from real alert records: unresolved first,
+  // then most recent.
+  const notifications = [...allAlerts].sort((a, b) => {
+    if (Boolean(a?.isResolved) !== Boolean(b?.isResolved)) {
+      return a?.isResolved ? 1 : -1;
+    }
+    const aTime = new Date(a?.createdAt || 0).getTime();
+    const bTime = new Date(b?.createdAt || 0).getTime();
+    return bTime - aTime;
+  });
+
+  const goToAlerts = () => {
+    setIsNotificationsVisible(false);
+    router.push({
+      pathname: "/(tabs)/alerts",
+      params: { doctorName, email: doctorEmail },
+    });
+  };
 
   useEffect(() => {
     let active = true;
@@ -233,13 +257,28 @@ export default function DoctorDashboard() {
               placeholderTextColor="#9CA3AF"
             />
           </View>
-          <TouchableOpacity style={styles.notificationButton}>
+          <TouchableOpacity
+            style={styles.notificationButton}
+            onPress={() => setIsNotificationsVisible(true)}
+          >
             <Ionicons name="notifications" size={24} color="#6B7280" />
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationBadgeText}>5</Text>
-            </View>
+            {pendingAlertCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>
+                  {pendingAlertCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.profileButton}>
+          <TouchableOpacity
+            style={styles.profileButton}
+            onPress={() =>
+              router.push({
+                pathname: "/(tabs)/docprof",
+                params: { doctorName, email: doctorEmail },
+              })
+            }
+          >
             <Ionicons name="person-circle" size={32} color="#3B82F6" />
           </TouchableOpacity>
         </View>
@@ -257,20 +296,6 @@ export default function DoctorDashboard() {
         {/* Metric Cards */}
         <View style={styles.metricsSection}>
           {(dashboardData?.metrics || []).map(renderMetricCard)}
-        </View>
-
-        {/* Engagement Card */}
-        <View style={styles.engagementCard}>
-          <View style={styles.engagementIconContainer}>
-            <MaterialCommunityIcons
-              name="hand-wave"
-              size={24}
-              color="#F59E0B"
-            />
-          </View>
-          <Text style={styles.engagementTitle}>Avg Engagement</Text>
-          <Text style={styles.engagementValue}>87%</Text>
-          <Text style={styles.engagementSubtitle}>+3% vs last week</Text>
         </View>
 
         {/* Recent Alerts */}
@@ -362,6 +387,114 @@ export default function DoctorDashboard() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
+      {/* Notifications Panel */}
+      <Modal
+        visible={isNotificationsVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsNotificationsVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.notificationsOverlay}
+          activeOpacity={1}
+          onPress={() => setIsNotificationsVisible(false)}
+        >
+          <TouchableOpacity
+            style={styles.notificationsPanel}
+            activeOpacity={1}
+            onPress={() => {}}
+          >
+            <View style={styles.notificationsHeader}>
+              <Text style={styles.notificationsTitle}>
+                Notifications
+                {pendingAlertCount > 0 ? ` (${pendingAlertCount} new)` : ""}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setIsNotificationsVisible(false)}
+              >
+                <Ionicons name="close" size={22} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            {notifications.length === 0 ? (
+              <View style={styles.notificationsEmpty}>
+                <Ionicons
+                  name="notifications-off-outline"
+                  size={32}
+                  color="#9CA3AF"
+                />
+                <Text style={styles.notificationsEmptyText}>
+                  No notifications yet
+                </Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={styles.notificationsList}
+                showsVerticalScrollIndicator={false}
+              >
+                {notifications.map((item: any, index: number) => {
+                  const colors = getSeverityColor(item?.severity);
+                  return (
+                    <TouchableOpacity
+                      key={item?.id || item?._id || index}
+                      style={[
+                        styles.notificationItem,
+                        !item?.isResolved && styles.notificationItemUnread,
+                      ]}
+                      onPress={goToAlerts}
+                    >
+                      <View
+                        style={[
+                          styles.notificationIcon,
+                          { backgroundColor: colors.bg },
+                        ]}
+                      >
+                        <Ionicons
+                          name="alert-circle"
+                          size={18}
+                          color={colors.border}
+                        />
+                      </View>
+                      <View style={styles.notificationContent}>
+                        <View style={styles.notificationTopRow}>
+                          <Text style={styles.notificationName} numberOfLines={1}>
+                            {item?.patientName || "Patient"}
+                          </Text>
+                          {!item?.isResolved && (
+                            <View style={styles.notificationUnreadDot} />
+                          )}
+                        </View>
+                        <Text
+                          style={styles.notificationMessage}
+                          numberOfLines={2}
+                        >
+                          {item?.issue || "New alert"}
+                        </Text>
+                        <Text style={styles.notificationTime}>
+                          {item?.time ||
+                            (item?.createdAt
+                              ? new Date(item.createdAt).toLocaleString()
+                              : "")}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            <TouchableOpacity
+              style={styles.notificationsFooter}
+              onPress={goToAlerts}
+            >
+              <Text style={styles.notificationsFooterText}>
+                View all alerts
+              </Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <Modal
         visible={isCreatePlanModalVisible}
         transparent
@@ -386,6 +519,33 @@ export default function DoctorDashboard() {
                 onChangeText={setNewPlanPatientName}
                 placeholderTextColor="#9CA3AF"
               />
+              {(dashboardData?.patients || []).length > 0 && (
+                <View style={styles.patientChipRow}>
+                  {(dashboardData?.patients || []).map((patient: any) => {
+                    const name = String(patient.name || "");
+                    const active = newPlanPatientName === name;
+                    return (
+                      <TouchableOpacity
+                        key={patient._id || patient.id || name}
+                        style={[
+                          styles.patientChip,
+                          active && styles.patientChipActive,
+                        ]}
+                        onPress={() => setNewPlanPatientName(name)}
+                      >
+                        <Text
+                          style={[
+                            styles.patientChipText,
+                            active && styles.patientChipTextActive,
+                          ]}
+                        >
+                          {name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
 
               <Text style={styles.planFieldLabel}>Primary Goal</Text>
               <TextInput
@@ -472,7 +632,7 @@ export default function DoctorDashboard() {
           onPress={() =>
             router.push({
               pathname: "/(tabs)/patients",
-              params: { doctorName },
+              params: { doctorName, email: doctorEmail },
             })
           }
         >
@@ -494,7 +654,10 @@ export default function DoctorDashboard() {
         <TouchableOpacity
           style={styles.navItem}
           onPress={() =>
-            router.push({ pathname: "/(tabs)/alerts", params: { doctorName } })
+            router.push({
+              pathname: "/(tabs)/alerts",
+              params: { doctorName, email: doctorEmail },
+            })
           }
         >
           <View style={styles.navIconWithBadge}>
@@ -503,9 +666,11 @@ export default function DoctorDashboard() {
               size={24}
               color={selectedTab === "alerts" ? "#3B82F6" : "#9CA3AF"}
             />
-            <View style={styles.navBadge}>
-              <Text style={styles.navBadgeText}>5</Text>
-            </View>
+            {pendingAlertCount > 0 && (
+              <View style={styles.navBadge}>
+                <Text style={styles.navBadgeText}>{pendingAlertCount}</Text>
+              </View>
+            )}
           </View>
           <Text
             style={[
@@ -522,7 +687,7 @@ export default function DoctorDashboard() {
           onPress={() =>
             router.push({
               pathname: "/(tabs)/docplans",
-              params: { doctorName },
+              params: { doctorName, email: doctorEmail },
             })
           }
         >
@@ -543,7 +708,12 @@ export default function DoctorDashboard() {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push("/(tabs)/analytics")}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/analytics",
+              params: { doctorName, email: doctorEmail },
+            })
+          }
         >
           <Ionicons
             name="bar-chart"
@@ -619,6 +789,114 @@ const styles = StyleSheet.create({
   },
   profileButton: {
     padding: 0,
+  },
+  notificationsOverlay: {
+    flex: 1,
+    backgroundColor: "#00000040",
+    paddingTop: 70,
+    paddingHorizontal: 16,
+    alignItems: "flex-end",
+  },
+  notificationsPanel: {
+    width: "100%",
+    maxWidth: 360,
+    maxHeight: "75%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  notificationsHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  notificationsTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  notificationsList: {
+    flexGrow: 0,
+  },
+  notificationsEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 36,
+    gap: 8,
+  },
+  notificationsEmptyText: {
+    fontSize: 14,
+    color: "#9CA3AF",
+  },
+  notificationItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  notificationItemUnread: {
+    backgroundColor: "#F8FAFF",
+  },
+  notificationIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  notificationContent: {
+    flex: 1,
+  },
+  notificationTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+  notificationName: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  notificationUnreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#EF4444",
+    marginLeft: 8,
+  },
+  notificationMessage: {
+    fontSize: 13,
+    color: "#374151",
+    marginBottom: 4,
+  },
+  notificationTime: {
+    fontSize: 11,
+    color: "#9CA3AF",
+  },
+  notificationsFooter: {
+    paddingVertical: 14,
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  notificationsFooterText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#3B82F6",
   },
   welcomeBanner: {
     backgroundColor: "#FFFFFF",
@@ -907,6 +1185,32 @@ const styles = StyleSheet.create({
   },
   planInputMultiline: {
     minHeight: 96,
+  },
+  patientChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  patientChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F3F4F6",
+  },
+  patientChipActive: {
+    backgroundColor: "#3B82F6",
+    borderColor: "#3B82F6",
+  },
+  patientChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  patientChipTextActive: {
+    color: "#FFFFFF",
   },
   planSaveButton: {
     marginTop: 16,

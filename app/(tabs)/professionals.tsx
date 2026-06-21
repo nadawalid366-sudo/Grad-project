@@ -9,34 +9,28 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { fetchProfessionals } from "../../services/api";
+import {
+  fetchRegisteredProfessionals,
+  type RegisteredProfessional,
+} from "../../services/api";
 
-interface Professional {
-  id: string;
-  type: "doctor" | "nutritionist" | "coach";
-  title: string;
-  description: string;
-  icon: string;
-  subscriptionPlans: SubscriptionPlan[];
-  features: string[];
-  rating: number;
-  reviewCount: number;
-}
+const TYPE_LABELS: Record<string, string> = {
+  doctor: "Doctor",
+  nutritionist: "Nutritionist",
+  coach: "Fitness Coach",
+};
 
-interface SubscriptionPlan {
-  id: string;
-  name: string;
-  price: number;
-  period: string;
-  description: string;
-  features: string[];
-}
+const CONSULTATION_PRICE: Record<string, number> = {
+  doctor: 49,
+  nutritionist: 39,
+  coach: 29,
+};
 
 export default function FindProfessionals() {
   const { email: emailParam } = useLocalSearchParams<{ email?: string }>();
   const router = useRouter();
   const selectedTab: string = "professionals";
-  const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [registered, setRegistered] = useState<RegisteredProfessional[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [userEmail, setUserEmail] = useState("user@example.com");
 
@@ -48,12 +42,8 @@ export default function FindProfessionals() {
     const loadProfessionals = async () => {
       try {
         setIsLoading(true);
-        const response = await fetchProfessionals();
-        const mapped = response.professionals.map((item, index) => ({
-          ...item,
-          id: item.id || item._id || String(index + 1),
-        }));
-        setProfessionals(mapped);
+        const registeredRes = await fetchRegisteredProfessionals();
+        setRegistered(registeredRes.professionals);
       } catch (error) {
         alert(
           error instanceof Error
@@ -68,22 +58,62 @@ export default function FindProfessionals() {
     loadProfessionals();
   }, []);
 
-  const handleSubscribeNow = (
-    professional: Professional,
-    plan: SubscriptionPlan,
+  const handleSubscribeToProfessional = (
+    professional: RegisteredProfessional,
   ) => {
     router.push({
       pathname: "/payment",
       params: {
         email: userEmail,
         professionalId: professional.id,
-        professionalTitle: professional.title,
-        planName: plan.name,
-        amount: String(plan.price),
-        period: plan.period,
+        professionalTitle: professional.fullName,
+        planName: "Consultation",
+        amount: String(CONSULTATION_PRICE[professional.type] ?? 49),
+        period: "per month",
       },
     });
   };
+
+  const renderRegisteredCard = (professional: RegisteredProfessional) => (
+    <View key={professional.id} style={styles.professionalCard}>
+      <View style={styles.cardHeader}>
+        <View style={styles.cardAvatarBadge}>
+          <Text style={styles.cardAvatar}>
+            {getProfessionalInitials(professional.fullName)}
+          </Text>
+        </View>
+        <View style={styles.cardHeaderInfo}>
+          <Text style={styles.cardTitle}>{professional.fullName}</Text>
+          <View style={styles.ratingContainer}>
+            <View style={styles.typeBadge}>
+              <Text style={styles.typeBadgeText}>
+                {TYPE_LABELS[professional.type] || professional.type}
+              </Text>
+            </View>
+            <Ionicons name="star" size={14} color="#F59E0B" />
+            <Text style={styles.rating}>{professional.rating}</Text>
+            <Text style={styles.reviewCount}>
+              ({professional.reviewCount})
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <Text style={styles.cardDescription}>
+        {professional.specialty}
+        {professional.email ? ` · ${professional.email}` : ""}
+      </Text>
+
+      <TouchableOpacity
+        style={styles.subscribeButton}
+        onPress={() => handleSubscribeToProfessional(professional)}
+      >
+        <Text style={styles.subscribeButtonText}>
+          Subscribe • ${CONSULTATION_PRICE[professional.type] ?? 49}/mo
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
 
   const getProfessionalInitials = (title: string) => {
     const parts = title.split(/\s+/).filter(Boolean);
@@ -94,75 +124,6 @@ export default function FindProfessionals() {
 
     return title.slice(0, 2).toUpperCase();
   };
-
-  const renderProfessionalCard = (professional: Professional) => (
-    <View key={professional.id} style={styles.professionalCard}>
-      {/* Header */}
-      <View style={styles.cardHeader}>
-        <View style={styles.cardAvatarBadge}>
-          <Text style={styles.cardAvatar}>
-            {getProfessionalInitials(professional.title)}
-          </Text>
-        </View>
-        <View style={styles.cardHeaderInfo}>
-          <Text style={styles.cardTitle}>{professional.title}</Text>
-          <View style={styles.ratingContainer}>
-            <Ionicons name="star" size={14} color="#F59E0B" />
-            <Text style={styles.rating}>{professional.rating}</Text>
-            <Text style={styles.reviewCount}>({professional.reviewCount})</Text>
-          </View>
-        </View>
-      </View>
-
-      <Text style={styles.cardDescription}>{professional.description}</Text>
-
-      {/* Features */}
-      <View style={styles.featuresContainer}>
-        <Text style={styles.featuresTitle}>Key Features:</Text>
-        {professional.features.map((feature, index) => (
-          <View key={index} style={styles.featureItem}>
-            <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-            <Text style={styles.featureText}>{feature}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Subscription Plans */}
-      <View style={styles.plansContainer}>
-        <Text style={styles.plansTitle}>Subscription Plans</Text>
-        {professional.subscriptionPlans.map((plan, index) => (
-          <View key={plan.id} style={styles.planCard}>
-            <View style={styles.planHeader}>
-              <Text style={styles.planName}>{plan.name}</Text>
-              <View style={styles.priceContainer}>
-                <Text style={styles.planPrice}>${plan.price}</Text>
-                <Text style={styles.planPeriod}>{plan.period}</Text>
-              </View>
-            </View>
-            <Text style={styles.planDescription}>{plan.description}</Text>
-
-            {/* Plan Features */}
-            <View style={styles.planFeatures}>
-              {plan.features.map((feature, idx) => (
-                <View key={idx} style={styles.planFeatureItem}>
-                  <Ionicons name="checkmark" size={14} color="#3B82F6" />
-                  <Text style={styles.planFeatureText}>{feature}</Text>
-                </View>
-              ))}
-            </View>
-
-            {/* Subscribe Button */}
-            <TouchableOpacity
-              style={styles.subscribeButton}
-              onPress={() => handleSubscribeNow(professional, plan)}
-            >
-              <Text style={styles.subscribeButtonText}>Subscribe Now</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-      </View>
-    </View>
-  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -193,10 +154,21 @@ export default function FindProfessionals() {
         {/* Professional Cards */}
         {isLoading ? (
           <Text style={styles.loadingText}>Loading professionals...</Text>
+        ) : registered.length > 0 ? (
+          <>
+            <Text style={styles.sectionTitle}>Available Professionals</Text>
+            {registered.map((professional) =>
+              renderRegisteredCard(professional),
+            )}
+          </>
         ) : (
-          professionals.map((professional) =>
-            renderProfessionalCard(professional),
-          )
+          <View style={styles.emptyState}>
+            <Ionicons name="people-outline" size={48} color="#9CA3AF" />
+            <Text style={styles.emptyStateTitle}>No professionals yet</Text>
+            <Text style={styles.emptyStateText}>
+              Healthcare professionals who register will appear here.
+            </Text>
+          </View>
         )}
 
         <View style={{ height: 100 }} />
@@ -378,6 +350,45 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     marginTop: 18,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    paddingHorizontal: 32,
+  },
+  emptyStateTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#374151",
+    marginTop: 12,
+  },
+  emptyStateText: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  typeBadge: {
+    backgroundColor: "#DBEAFE",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginRight: 4,
+  },
+  typeBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#1D4ED8",
   },
   professionalCard: {
     backgroundColor: "#FFFFFF",

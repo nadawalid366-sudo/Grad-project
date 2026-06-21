@@ -301,7 +301,10 @@ export default function MyPatientsScreen() {
         <TouchableOpacity
           style={styles.navItem}
           onPress={() =>
-            router.push({ pathname: "/(tabs)/dochome", params: { doctorName } })
+            router.push({
+              pathname: "/(tabs)/dochome",
+              params: { doctorName, email: doctorEmail },
+            })
           }
         >
           <Ionicons
@@ -329,14 +332,14 @@ export default function MyPatientsScreen() {
         <TouchableOpacity
           style={styles.navItem}
           onPress={() =>
-            router.push({ pathname: "/(tabs)/alerts", params: { doctorName } })
+            router.push({
+              pathname: "/(tabs)/alerts",
+              params: { doctorName, email: doctorEmail },
+            })
           }
         >
           <View style={styles.navIconWithBadge}>
             <Ionicons name="alert-circle" size={24} color="#9CA3AF" />
-            <View style={styles.navBadge}>
-              <Text style={styles.navBadgeText}>5</Text>
-            </View>
           </View>
           <Text style={styles.navLabel}>Alerts</Text>
         </TouchableOpacity>
@@ -346,7 +349,7 @@ export default function MyPatientsScreen() {
           onPress={() =>
             router.push({
               pathname: "/(tabs)/docplans",
-              params: { doctorName },
+              params: { doctorName, email: doctorEmail },
             })
           }
         >
