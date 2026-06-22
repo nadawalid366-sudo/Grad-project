@@ -1,4 +1,5 @@
 import express from "express";
+import { ObjectId } from "mongodb";
 import { requireRole, requireSelf } from "../auth/authMiddleware.js";
 import { getDb } from "../db/mongoClient.js";
 
@@ -284,6 +285,70 @@ router.post("/patient/:email/logs", patientOnly, async (req, res) => {
     return res
       .status(500)
       .json({ message: "Failed to save log.", error: String(error) });
+  }
+});
+
+// Build a Mongo filter that matches a log whether it was stored with an ObjectId
+// _id (the normal case) or a plain string id (older/seeded records).
+function buildLogFilter(email, logId) {
+  const orMatches = [{ id: logId }];
+  if (ObjectId.isValid(logId)) {
+    orMatches.push({ _id: new ObjectId(logId) });
+  }
+  return { email, $or: orMatches };
+}
+
+router.put("/patient/:email/logs/:logId", patientOnly, async (req, res) => {
+  try {
+    const email = req.params.email.toLowerCase();
+    const { logId } = req.params;
+    const { type, title, subtitle, note } = req.body;
+    const db = await getDb();
+
+    const normalizedType = normalizeLogType(type, title, subtitle, note);
+    const set = {
+      type: normalizedType,
+      title: title || "",
+      subtitle: subtitle || note || "",
+      note: note || "",
+      updatedAt: new Date(),
+    };
+
+    const result = await db
+      .collection("patientLogs")
+      .updateOne(buildLogFilter(email, logId), { $set: set });
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Log not found." });
+    }
+
+    return res.json({ message: "Log updated." });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: "Failed to update log.", error: String(error) });
+  }
+});
+
+router.delete("/patient/:email/logs/:logId", patientOnly, async (req, res) => {
+  try {
+    const email = req.params.email.toLowerCase();
+    const { logId } = req.params;
+    const db = await getDb();
+
+    const result = await db
+      .collection("patientLogs")
+      .deleteOne(buildLogFilter(email, logId));
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Log not found." });
+    }
+
+    return res.json({ message: "Log deleted." });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: "Failed to delete log.", error: String(error) });
   }
 });
 

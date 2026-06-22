@@ -1,9 +1,11 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -12,7 +14,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { fetchPatientDashboard } from '../../services/api';
+import { deletePatientLog, fetchPatientDashboard, updatePatientLog } from '../../services/api';
 
 interface LogEntry {
   id: string;
@@ -85,6 +87,10 @@ export default function HealthLogs() {
   const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState(false);
   const [voiceAssistantScreen, setVoiceAssistantScreen] = useState<'listening' | 'confirmation'>('listening');
   const [selectedLogType, setSelectedLogType] = useState<string>('');
+  const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editSubtitle, setEditSubtitle] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -97,81 +103,93 @@ export default function HealthLogs() {
     });
   }, [params.fullName, params.age, params.height, params.weight, params.email]);
 
-  useEffect(() => {
-    const email = userData?.email;
-    if (!email) {
-      return;
-    }
+  const loadLogs = useCallback(
+    (email: string, isActive: () => boolean = () => true) => {
+      return fetchPatientDashboard(email)
+        .then((response) => {
+          if (!isActive()) return;
 
-    let active = true;
-    fetchPatientDashboard(email)
-      .then((response) => {
-        if (!active) return;
-
-        const mappedLogs = (response.logs || []).map(
-          (log: Record<string, any>, index: number) => {
-            const type = normalizeLogType(String(log.type || ''), String(log.title || ''), String(log.subtitle || log.note || ''));
-            const subtitle = String(log.subtitle || log.note || '');
-            const details =
-              type === 'meal'
-                ? { calories: Number(log.calories ?? 0) }
-                : type === 'exercise'
-                  ? { duration: subtitle || '30 min', calories: Number(log.calories ?? 0), distance: String(log.distance || '') }
-                  : type === 'vitals'
-                    ? {
-                        reading: String(log.blood_pressure ?? (subtitle || 'No reading')),
-                        status: String(log.status || 'Recorded'),
-                        trend: String(log.trend || 'Stable'),
-                      }
-                    : type === 'medication'
-                      ? { dosage: subtitle || 'Taken as prescribed', status: String(log.status || 'Completed') }
-                      : { status: subtitle || 'Logged' };
-
-            return {
-              id: String(log.id || log._id || index + 1),
-              type,
-              title: String(log.title || 'Health Log'),
-              subtitle,
-              timestamp: String(log.timestamp || 'Just now'),
-              icon: (
-                log.icon ||
-                (type === 'meal'
-                  ? 'food-fork-drink'
+          const mappedLogs = (response.logs || []).map(
+            (log: Record<string, any>, index: number) => {
+              const type = normalizeLogType(String(log.type || ''), String(log.title || ''), String(log.subtitle || log.note || ''));
+              const subtitle = String(log.subtitle || log.note || '');
+              const details =
+                type === 'meal'
+                  ? { calories: Number(log.calories ?? 0) }
                   : type === 'exercise'
-                    ? 'walk'
-                    : type === 'medication'
-                      ? 'pill'
-                      : type === 'vitals'
-                        ? 'heart-pulse'
-                        : 'note-text')
-              ) as keyof typeof MaterialCommunityIcons.glyphMap,
-              color: String(
-                log.color ||
-                  (type === 'meal'
-                    ? '#F59E0B'
-                    : type === 'exercise'
-                      ? '#3B82F6'
+                    ? { duration: subtitle || '30 min', calories: Number(log.calories ?? 0), distance: String(log.distance || '') }
+                    : type === 'vitals'
+                      ? {
+                          reading: String(log.blood_pressure ?? (subtitle || 'No reading')),
+                          status: String(log.status || 'Recorded'),
+                          trend: String(log.trend || 'Stable'),
+                        }
                       : type === 'medication'
-                        ? '#EC4899'
+                        ? { dosage: subtitle || 'Taken as prescribed', status: String(log.status || 'Completed') }
+                        : { status: subtitle || 'Logged' };
+
+              return {
+                id: String(log.id || log._id || index + 1),
+                type,
+                title: String(log.title || 'Health Log'),
+                subtitle,
+                timestamp: String(log.timestamp || 'Just now'),
+                icon: (
+                  log.icon ||
+                  (type === 'meal'
+                    ? 'food-fork-drink'
+                    : type === 'exercise'
+                      ? 'walk'
+                      : type === 'medication'
+                        ? 'pill'
                         : type === 'vitals'
-                          ? '#EF4444'
-                          : '#8B5CF6')
-              ),
-              details,
-            };
-          }
-        );
+                          ? 'heart-pulse'
+                          : 'note-text')
+                ) as keyof typeof MaterialCommunityIcons.glyphMap,
+                color: String(
+                  log.color ||
+                    (type === 'meal'
+                      ? '#F59E0B'
+                      : type === 'exercise'
+                        ? '#3B82F6'
+                        : type === 'medication'
+                          ? '#EC4899'
+                          : type === 'vitals'
+                            ? '#EF4444'
+                            : '#8B5CF6')
+                ),
+                details,
+              };
+            }
+          );
 
-        setLogEntries(mappedLogs);
-      })
-      .catch((error) => {
-        console.log('Failed to load logs:', error);
-      });
+          setLogEntries(mappedLogs);
+        })
+        .catch((error) => {
+          console.log('Failed to load logs:', error);
+        });
+    },
+    []
+  );
 
-    return () => {
-      active = false;
-    };
-  }, [userData?.email]);
+  // Reload every time the screen comes into focus. On native (Expo Go) the screen
+  // stays mounted in the navigator, so a plain mount-effect would keep showing
+  // stale data after you add a log on the dashboard and come back here.
+  useFocusEffect(
+    useCallback(() => {
+      const email = userData?.email;
+      if (!email) {
+        return;
+      }
+
+      let active = true;
+      loadLogs(email, () => active);
+
+      return () => {
+        active = false;
+      };
+    }, [userData?.email, loadLogs])
+  );
 
   // Pulsating animation
   useEffect(() => {
@@ -208,6 +226,81 @@ export default function HealthLogs() {
 
   const handleListeningComplete = () => {
     setVoiceAssistantScreen('confirmation');
+  };
+
+  const handleOpenEdit = (entry: LogEntry) => {
+    setEditingEntry(entry);
+    setEditTitle(entry.title);
+    setEditSubtitle(entry.subtitle);
+  };
+
+  const handleCloseEdit = () => {
+    setEditingEntry(null);
+    setEditTitle('');
+    setEditSubtitle('');
+  };
+
+  const handleSaveEdit = async () => {
+    const email = userData?.email;
+    if (!editingEntry || !email || !editTitle.trim()) {
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      await updatePatientLog(email, editingEntry.id, {
+        type: editingEntry.type,
+        title: editTitle.trim(),
+        subtitle: editSubtitle.trim(),
+        note: editSubtitle.trim(),
+      });
+      await loadLogs(email);
+      handleCloseEdit();
+    } catch (error) {
+      console.log('Failed to update log:', error);
+      Alert.alert('Could not save', 'Failed to update the log. Please try again.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const performDelete = async (entry: LogEntry) => {
+    const email = userData?.email;
+    if (!email) {
+      return;
+    }
+
+    // Optimistically remove, then reconcile with the server.
+    setLogEntries((prev) => prev.filter((item) => item.id !== entry.id));
+    if (expandedEntryId === entry.id) {
+      setExpandedEntryId(null);
+    }
+
+    try {
+      await deletePatientLog(email, entry.id);
+      await loadLogs(email);
+    } catch (error) {
+      console.log('Failed to delete log:', error);
+      Alert.alert('Could not delete', 'Failed to delete the log. Please try again.');
+      await loadLogs(email);
+    }
+  };
+
+  const handleDeleteEntry = (entry: LogEntry) => {
+    // Alert.alert has no UI on web — delete directly there, confirm on native.
+    if (Platform.OS === 'web') {
+      performDelete(entry);
+      return;
+    }
+
+    Alert.alert(
+      'Delete log',
+      `Delete "${entry.title}"? This can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => performDelete(entry) },
+      ],
+    );
   };
 
   const categories = [
@@ -339,10 +432,10 @@ export default function HealthLogs() {
               )}
 
               <View style={styles.actionButtons}>
-                <TouchableOpacity style={styles.editButton}>
+                <TouchableOpacity style={styles.editButton} onPress={() => handleOpenEdit(entry)}>
                   <Text style={styles.editButtonText}>Edit</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.deleteButton}>
+                <TouchableOpacity style={styles.deleteButton} onPress={() => handleDeleteEntry(entry)}>
                   <Text style={styles.deleteButtonText}>Delete</Text>
                 </TouchableOpacity>
               </View>
@@ -469,6 +562,58 @@ export default function HealthLogs() {
           <Text style={styles.navLabel}>Profile</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Edit Log Modal */}
+      <Modal
+        visible={editingEntry !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCloseEdit}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.editModalContent}>
+            <View style={styles.editModalHeader}>
+              <Text style={styles.editModalTitle}>Edit Log</Text>
+              <TouchableOpacity onPress={handleCloseEdit}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.editLabel}>Title</Text>
+            <TextInput
+              style={styles.editInput}
+              value={editTitle}
+              onChangeText={setEditTitle}
+              placeholder="Log title"
+              placeholderTextColor="#9CA3AF"
+            />
+
+            <Text style={styles.editLabel}>Details</Text>
+            <TextInput
+              style={[styles.editInput, styles.editInputMultiline]}
+              value={editSubtitle}
+              onChangeText={setEditSubtitle}
+              placeholder="Add any extra details"
+              placeholderTextColor="#9CA3AF"
+              multiline
+              textAlignVertical="top"
+            />
+
+            <TouchableOpacity
+              style={[
+                styles.editSaveButton,
+                (!editTitle.trim() || isSavingEdit) && styles.editSaveButtonDisabled,
+              ]}
+              onPress={handleSaveEdit}
+              disabled={!editTitle.trim() || isSavingEdit}
+            >
+              <Text style={styles.editSaveButtonText}>
+                {isSavingEdit ? 'Saving...' : 'Save Changes'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Voice Assistant Modal */}
       <Modal
@@ -1062,5 +1207,58 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  editModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    width: '100%',
+    maxWidth: 420,
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  editModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  editLabel: {
+    fontSize: 13,
+    color: '#374151',
+    marginBottom: 6,
+    fontWeight: '600',
+  },
+  editInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#111827',
+    marginBottom: 12,
+    backgroundColor: '#F9FAFB',
+  },
+  editInputMultiline: {
+    minHeight: 90,
+  },
+  editSaveButton: {
+    marginTop: 4,
+    backgroundColor: '#3B82F6',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  editSaveButtonDisabled: {
+    backgroundColor: '#BFDBFE',
+  },
+  editSaveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

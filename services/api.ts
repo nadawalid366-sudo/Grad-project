@@ -424,6 +424,34 @@ export async function savePatientLog(
   );
 }
 
+export async function updatePatientLog(
+  email: string,
+  logId: string,
+  payload: {
+    type: string;
+    title: string;
+    subtitle?: string;
+    note?: string;
+  },
+) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs/${encodeURIComponent(logId)}`,
+    {
+      method: "PUT",
+      body: payload,
+    },
+  );
+}
+
+export async function deletePatientLog(email: string, logId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs/${encodeURIComponent(logId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
 export async function savePatientMetrics(
   email: string,
   payload: {
