@@ -51,7 +51,13 @@
       ],
       "expo-web-browser",
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to record audio for voice logging."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

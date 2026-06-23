@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import app from "./app.js";
 import { bootstrapCollections } from "./db/bootstrapCollections.js";
 import { getDb } from "./db/mongoClient.js";
+import { startSttService, stopSttService } from "./stt/sttProcess.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,6 +47,18 @@ async function startServer() {
   server.listen(port, host, () => {
     console.log(`Backend running on http://${host}:${port}`);
   });
+
+  // Bring the Python Whisper speech-to-text service online alongside the API.
+  startSttService();
+
+  // Make sure the spawned STT process is torn down when the backend stops.
+  const shutdown = () => {
+    stopSttService();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  process.on("exit", stopSttService);
 }
 
 startServer().catch((error) => {

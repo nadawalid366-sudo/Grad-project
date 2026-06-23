@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { Platform } from "react-native";
 import { getToken, signIn, signOut } from "./auth";
 
 // Optional callback the app can register to react to an expired/invalid session
@@ -60,8 +61,95 @@ function resolveApiBaseUrl() {
 
 export const API_BASE_URL = resolveApiBaseUrl();
 
+// The Python Whisper speech-to-text service runs on port 8000 (the Node backend
+// auto-starts it). It lives on the same machine as the backend, so reuse the
+// backend's host and just swap the port. Override with EXPO_PUBLIC_STT_URL.
+function resolveSttBaseUrl() {
+  const explicit =
+    process.env.EXPO_PUBLIC_STT_URL ||
+    (Constants as any)?.expoConfig?.extra?.EXPO_PUBLIC_STT_URL;
+  if (explicit) {
+    return explicit;
+  }
+
+  try {
+    const url = new URL(API_BASE_URL);
+    return `${url.protocol}//${url.hostname}:8000`;
+  } catch {
+    return "http://localhost:8000";
+  }
+}
+
+export const STT_BASE_URL = resolveSttBaseUrl();
+
 if (__DEV__) {
   console.log(`[api] Using backend base URL: ${API_BASE_URL}`);
+  console.log(`[api] Using speech-to-text URL: ${STT_BASE_URL}`);
+}
+
+export type TranscriptionResult = {
+  success: boolean;
+  text: string;
+  language?: string;
+  processing_time?: number;
+};
+
+/**
+ * Uploads a recorded audio file to the Whisper speech-to-text service and
+ * returns the transcribed text. `fileUri` is the local URI produced by
+ * expo-audio's recorder (e.g. file:///.../recording.m4a).
+ */
+export async function transcribeAudio(
+  fileUri: string,
+): Promise<TranscriptionResult> {
+  const url = `${STT_BASE_URL}/transcribe`;
+
+  const formData = new FormData();
+
+  if (Platform.OS === "web") {
+    // On web the recorder hands back a blob: URL — fetch it and attach the Blob.
+    const fetched = await fetch(fileUri);
+    const blob = await fetched.blob();
+    formData.append("file", blob, "recording.webm");
+  } else {
+    // React Native: attach the local file URI directly.
+    let filename = fileUri.split("/").pop() || "recording.m4a";
+    if (!filename.includes(".")) {
+      filename += ".m4a";
+    }
+    const ext = filename.split(".").pop()?.toLowerCase() || "m4a";
+    formData.append("file", {
+      uri: fileUri,
+      name: filename,
+      type: `audio/${ext}`,
+    } as any);
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      body: formData,
+      headers: { Accept: "application/json" },
+    });
+
+    const rawText = await response.text();
+    const data = rawText ? JSON.parse(rawText) : {};
+
+    if (!response.ok) {
+      throw new Error(
+        data?.detail || data?.message || `Transcription failed (${response.status})`,
+      );
+    }
+
+    return data as TranscriptionResult;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Cannot reach speech-to-text service at ${STT_BASE_URL}. Make sure the backend (and STT service) is running.`,
+      );
+    }
+    throw error;
+  }
 }
 
 type RequestOptions = {

@@ -2,6 +2,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Modal,
@@ -14,7 +15,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { deletePatientLog, fetchPatientDashboard, updatePatientLog } from '../../services/api';
+import { deletePatientLog, fetchPatientDashboard, savePatientLog, updatePatientLog } from '../../services/api';
+import { useVoiceTranscription } from '../../hooks/use-voice-transcription';
 
 interface LogEntry {
   id: string;
@@ -87,6 +89,17 @@ export default function HealthLogs() {
   const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState(false);
   const [voiceAssistantScreen, setVoiceAssistantScreen] = useState<'listening' | 'confirmation'>('listening');
   const [selectedLogType, setSelectedLogType] = useState<string>('');
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceLogCategory, setVoiceLogCategory] = useState<LogCategory>('meal');
+  const [isSavingVoiceLog, setIsSavingVoiceLog] = useState(false);
+  const {
+    isRecording,
+    isTranscribing,
+    error: voiceError,
+    start: startVoiceRecording,
+    stopAndTranscribe,
+    cancel: cancelVoiceRecording,
+  } = useVoiceTranscription();
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editSubtitle, setEditSubtitle] = useState('');
@@ -215,17 +228,60 @@ export default function HealthLogs() {
     setIsVoiceAssistantOpen(true);
     setVoiceAssistantScreen('listening');
     setSelectedLogType('');
+    setVoiceTranscript('');
+    startVoiceRecording().catch(() => {});
   };
 
   const handleCloseVoiceAssistant = () => {
+    cancelVoiceRecording().catch(() => {});
     setIsVoiceAssistantOpen(false);
     setVoiceAssistantScreen('listening');
     setSelectedLogType('');
+    setVoiceTranscript('');
     pulseAnim.setValue(0);
   };
 
-  const handleListeningComplete = () => {
+  const handleListeningComplete = async () => {
+    const transcript = await stopAndTranscribe();
+    const cleanTranscript = (transcript || '').trim();
+
+    if (!cleanTranscript) {
+      setVoiceTranscript('');
+      setVoiceAssistantScreen('confirmation');
+      return;
+    }
+
+    // Pre-select the auto-detected category, but let the user change it before
+    // saving on the confirmation screen.
+    const detected = normalizeLogType('', cleanTranscript, cleanTranscript);
+    setVoiceLogCategory(detected);
+    setVoiceTranscript(cleanTranscript);
     setVoiceAssistantScreen('confirmation');
+  };
+
+  const handleSaveVoiceLog = async () => {
+    const email = userData?.email;
+    if (!email || !voiceTranscript.trim()) {
+      handleCloseVoiceAssistant();
+      return;
+    }
+
+    setIsSavingVoiceLog(true);
+    try {
+      await savePatientLog(email, {
+        type: voiceLogCategory,
+        title: voiceTranscript.trim(),
+        subtitle: voiceTranscript.trim(),
+        note: '',
+      });
+      await loadLogs(email);
+      handleCloseVoiceAssistant();
+    } catch (error) {
+      console.log('Failed to save voice log:', error);
+      Alert.alert('Could not save', 'Failed to save the log. Please try again.');
+    } finally {
+      setIsSavingVoiceLog(false);
+    }
   };
 
   const handleOpenEdit = (entry: LogEntry) => {
@@ -637,8 +693,10 @@ export default function HealthLogs() {
               </View>
 
               <View style={styles.listeningContainer}>
-                <Text style={styles.listeningLabel}>Listening...</Text>
-                
+                <Text style={styles.listeningLabel}>
+                  {isTranscribing ? 'Transcribing...' : 'Listening...'}
+                </Text>
+
                 {/* Pulsating Waveform Circle */}
                 <View style={styles.pulseContainer}>
                   <Animated.View
@@ -661,18 +719,34 @@ export default function HealthLogs() {
                     ]}
                   />
                   <View style={styles.microphoneCircle}>
-                    <MaterialCommunityIcons name="microphone" size={40} color="#FFFFFF" />
+                    {isTranscribing ? (
+                      <ActivityIndicator size="large" color="#FFFFFF" />
+                    ) : (
+                      <MaterialCommunityIcons name="microphone" size={40} color="#FFFFFF" />
+                    )}
                   </View>
                 </View>
 
-                <Text style={styles.instructionText}>Speak clearly into your device</Text>
+                <Text style={styles.instructionText}>
+                  {voiceError
+                    ? voiceError
+                    : isTranscribing
+                      ? 'Converting your speech to text'
+                      : 'Speak clearly, then tap Done'}
+                </Text>
               </View>
 
               <TouchableOpacity
-                style={styles.listeningButton}
+                style={[
+                  styles.listeningButton,
+                  (isTranscribing || !isRecording) && { opacity: 0.6 },
+                ]}
                 onPress={handleListeningComplete}
+                disabled={isTranscribing || !isRecording}
               >
-                <Text style={styles.listeningButtonText}>Done</Text>
+                <Text style={styles.listeningButtonText}>
+                  {isTranscribing ? 'Please wait...' : 'Done'}
+                </Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -685,18 +759,76 @@ export default function HealthLogs() {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.confirmationDetails}>
-                <Text style={styles.confirmationDetailLabel}>Logged:</Text>
-                <Text style={styles.confirmationDetailValue}>{selectedLogType}</Text>
-                <Text style={styles.detailSubtext}>Your entry has been recorded successfully</Text>
-              </View>
+              {voiceTranscript ? (
+                <>
+                  <View style={styles.confirmationDetails}>
+                    <Text style={styles.confirmationDetailLabel}>You said:</Text>
+                    <Text style={styles.confirmationDetailValue}>
+                      &quot;{voiceTranscript}&quot;
+                    </Text>
+                  </View>
 
-              <TouchableOpacity
-                style={styles.confirmButton}
-                onPress={handleCloseVoiceAssistant}
-              >
-                <Text style={styles.confirmButtonText}>Done</Text>
-              </TouchableOpacity>
+                  <Text style={styles.categoryPickerLabel}>Log as:</Text>
+                  <View style={styles.categoryPickerRow}>
+                    {categories
+                      .filter((category) => category.id !== 'all')
+                      .map((category) => {
+                        const isActive = voiceLogCategory === category.id;
+                        return (
+                          <TouchableOpacity
+                            key={category.id}
+                            onPress={() =>
+                              setVoiceLogCategory(category.id as LogCategory)
+                            }
+                            style={[
+                              styles.categoryPickerChip,
+                              isActive && {
+                                backgroundColor: category.color,
+                                borderColor: category.color,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.categoryPickerChipText,
+                                isActive && styles.categoryPickerChipTextActive,
+                              ]}
+                            >
+                              {category.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.confirmButton,
+                      isSavingVoiceLog && { opacity: 0.6 },
+                    ]}
+                    onPress={handleSaveVoiceLog}
+                    disabled={isSavingVoiceLog}
+                  >
+                    <Text style={styles.confirmButtonText}>
+                      {isSavingVoiceLog ? 'Saving...' : 'Save log'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <View style={styles.confirmationDetails}>
+                    <Text style={styles.detailSubtext}>
+                      No speech was detected. Please try again.
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.confirmButton}
+                    onPress={handleCloseVoiceAssistant}
+                  >
+                    <Text style={styles.confirmButtonText}>Done</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           )}
         </View>
@@ -1206,6 +1338,34 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  categoryPickerLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 10,
+  },
+  categoryPickerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 20,
+  },
+  categoryPickerChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+  },
+  categoryPickerChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  categoryPickerChipTextActive: {
     color: '#FFFFFF',
   },
   editModalContent: {

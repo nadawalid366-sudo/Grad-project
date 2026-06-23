@@ -2,6 +2,7 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
+    ActivityIndicator,
     Animated,
     Modal,
     SafeAreaView,
@@ -19,6 +20,7 @@ import {
     savePatientMetrics,
 } from "../../services/api";
 import { useBlockBack } from "../../hooks/use-block-back";
+import { useVoiceTranscription } from "../../hooks/use-voice-transcription";
 
 type WaterUnit = "cups" | "litres";
 
@@ -59,30 +61,26 @@ const computeSleepHours = (bedtime: string, wakeTime: string) => {
   return Math.round((mins / 60) * 10) / 10;
 };
 
-// expo-speech-recognition is a native module NOT bundled in Expo Go. Its package
-// calls requireNativeModule('ExpoSpeechRecognition') at IMPORT time, which throws
-// in Expo Go — a static import would make this whole route file fail to load and
-// break navigation to /home. Load it via a guarded require so the screen still
-// renders (voice disabled) when the native module is absent.
-type SpeechEventHook = (
-  eventName: string,
-  listener: (event: any) => void,
-) => void;
+// Voice logging records audio with expo-audio (works in Expo Go) and sends it
+// to the local Whisper speech-to-text service — see useVoiceTranscription.
 
-let speechModule: any = null;
-let useSpeechEvent: SpeechEventHook = () => {};
-try {
-  const SpeechRecognition = require("expo-speech-recognition");
-  if (SpeechRecognition?.ExpoSpeechRecognitionModule) {
-    speechModule = SpeechRecognition.ExpoSpeechRecognitionModule;
-    useSpeechEvent = SpeechRecognition.useSpeechRecognitionEvent;
-  }
-} catch (error) {
-  console.log(
-    "expo-speech-recognition unavailable (expected in Expo Go):",
-    error,
-  );
-}
+type VoiceCategory = "meal" | "exercise" | "vitals" | "medication" | "symptom";
+
+const VOICE_CATEGORIES: { id: VoiceCategory; label: string; color: string }[] = [
+  { id: "meal", label: "Meal", color: "#F59E0B" },
+  { id: "exercise", label: "Exercise", color: "#3B82F6" },
+  { id: "vitals", label: "Vitals", color: "#EF4444" },
+  { id: "medication", label: "Medication", color: "#EC4899" },
+  { id: "symptom", label: "Symptom", color: "#8B5CF6" },
+];
+
+const VOICE_CATEGORY_LABELS: Record<VoiceCategory, string> = {
+  meal: "Log Meal",
+  exercise: "Log Exercise",
+  vitals: "Log Vitals",
+  medication: "Log Medication",
+  symptom: "Log Symptom",
+};
 
 interface MetricCard {
   id: string;
@@ -132,6 +130,9 @@ export default function DashboardHome() {
   >("listening");
   const [selectedLogType, setSelectedLogType] = useState<string>("");
   const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [voiceLogCategory, setVoiceLogCategory] =
+    useState<VoiceCategory>("meal");
+  const [isSavingVoiceLog, setIsSavingVoiceLog] = useState(false);
   const [isQuickLogModalOpen, setIsQuickLogModalOpen] = useState(false);
   const [quickLogType, setQuickLogType] = useState("");
   const [quickLogValue, setQuickLogValue] = useState("");
@@ -156,6 +157,14 @@ export default function DashboardHome() {
   const [draftWaterAmount, setDraftWaterAmount] = useState("");
   const [draftWaterUnit, setDraftWaterUnit] = useState<WaterUnit>("cups");
   const pulseAnim = useRef(new Animated.Value(0)).current;
+  const {
+    isRecording,
+    isTranscribing,
+    error: voiceError,
+    start: startVoiceRecording,
+    stopAndTranscribe,
+    cancel: cancelVoiceRecording,
+  } = useVoiceTranscription();
 
   useEffect(() => {
     const name = params.fullName || "User";
@@ -393,90 +402,15 @@ export default function DashboardHome() {
     }
   };
 
-  const handleVoiceResultFinal = (transcript: string) => {
-    const cleanTranscript = transcript.trim();
-    if (!cleanTranscript) {
-      return;
-    }
-
-    const detectedType = classifyVoiceLogType(cleanTranscript);
-    setVoiceTranscript(cleanTranscript);
-    setSelectedLogType(detectedType);
-    setVoiceAssistantScreen("confirmation");
-
-    // Save voice log to database
-    if (userData?.email) {
-      const normalizedLogType = (() => {
-        const value = detectedType.toLowerCase();
-        if (value.includes("meal")) return "meal";
-        if (value.includes("exercise")) return "exercise";
-        if (value.includes("vitals")) return "vitals";
-        if (value.includes("medication")) return "medication";
-        return "symptom";
-      })();
-
-      const newEntry: QuickLogEntry = {
-        id: Date.now().toString(),
-        type: detectedType,
-        value: cleanTranscript,
-        note: "",
-        timestamp: new Date().toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-        }),
-      };
-
-      setQuickLogEntries((prev) => [newEntry, ...prev]);
-      savePatientLog(userData.email, {
-        type: normalizedLogType,
-        title: cleanTranscript,
-        subtitle: cleanTranscript,
-        note: "",
-      }).catch((error) => console.log("Failed to save voice log:", error));
-    }
-  };
-
-  useSpeechEvent("start", () => {
-    setVoiceAssistantScreen("listening");
-  });
-
-  useSpeechEvent("result", (event) => {
-    const transcript = event.results?.[0]?.transcript?.trim() || "";
-    if (!transcript) {
-      return;
-    }
-
-    setVoiceTranscript(transcript);
-    if (event.isFinal) {
-      handleVoiceResultFinal(transcript);
-    }
-  });
-
-  useSpeechEvent("error", (event) => {
-    const fallbackType = classifyVoiceLogType(event?.message || "");
-    setSelectedLogType(fallbackType);
-    setVoiceAssistantScreen("confirmation");
-  });
-
-  useSpeechEvent("end", () => {});
-
-  const startVoiceRecognition = async () => {
-    if (!speechModule) {
-      return;
-    }
-
-    const permission = await speechModule.requestPermissionsAsync();
-    if (!permission.granted) {
-      return;
-    }
-
-    speechModule.start({
-      lang: "en-US",
-      interimResults: true,
-      continuous: false,
-      maxAlternatives: 1,
-      addsPunctuation: true,
-    });
+  // Map the keyword-detected label ("Log Meal", etc.) to a category key, used
+  // only to pre-select the category on the confirmation screen.
+  const detectDefaultCategory = (transcript: string): VoiceCategory => {
+    const value = classifyVoiceLogType(transcript).toLowerCase();
+    if (value.includes("meal")) return "meal";
+    if (value.includes("exercise")) return "exercise";
+    if (value.includes("vitals")) return "vitals";
+    if (value.includes("medication")) return "medication";
+    return "symptom";
   };
 
   const handleOpenVoiceAssistant = () => {
@@ -484,11 +418,11 @@ export default function DashboardHome() {
     setVoiceAssistantScreen("listening");
     setSelectedLogType("");
     setVoiceTranscript("");
-    startVoiceRecognition().catch(() => {});
+    startVoiceRecording().catch(() => {});
   };
 
   const handleCloseVoiceAssistant = () => {
-    speechModule?.stop();
+    cancelVoiceRecording().catch(() => {});
     setIsVoiceAssistantOpen(false);
     setVoiceAssistantScreen("listening");
     setSelectedLogType("");
@@ -496,14 +430,57 @@ export default function DashboardHome() {
     pulseAnim.setValue(0);
   };
 
-  const handleListeningComplete = () => {
-    speechModule?.stop();
-    if (!voiceTranscript.trim()) {
-      setSelectedLogType("General Health Log");
+  const handleListeningComplete = async () => {
+    const transcript = await stopAndTranscribe();
+    const cleanTranscript = (transcript || "").trim();
+
+    if (!cleanTranscript) {
+      // Nothing recognized — show confirmation with a retry message.
+      setVoiceTranscript("");
       setVoiceAssistantScreen("confirmation");
       return;
     }
-    handleVoiceResultFinal(voiceTranscript);
+
+    // Pre-select the auto-detected category; the user picks/confirms next.
+    setVoiceTranscript(cleanTranscript);
+    setVoiceLogCategory(detectDefaultCategory(cleanTranscript));
+    setVoiceAssistantScreen("confirmation");
+  };
+
+  const handleSaveVoiceLog = async () => {
+    const cleanTranscript = voiceTranscript.trim();
+    if (!userData?.email || !cleanTranscript) {
+      handleCloseVoiceAssistant();
+      return;
+    }
+
+    setIsSavingVoiceLog(true);
+
+    const newEntry: QuickLogEntry = {
+      id: Date.now().toString(),
+      type: VOICE_CATEGORY_LABELS[voiceLogCategory],
+      value: cleanTranscript,
+      note: "",
+      timestamp: new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+
+    try {
+      await savePatientLog(userData.email, {
+        type: voiceLogCategory,
+        title: cleanTranscript,
+        subtitle: cleanTranscript,
+        note: "",
+      });
+      setQuickLogEntries((prev) => [newEntry, ...prev]);
+      handleCloseVoiceAssistant();
+    } catch (error) {
+      console.log("Failed to save voice log:", error);
+    } finally {
+      setIsSavingVoiceLog(false);
+    }
   };
 
   const getQuickLogValuePlaceholder = (type: string) => {
@@ -1269,7 +1246,9 @@ export default function DashboardHome() {
               </View>
 
               <View style={styles.listeningContainer}>
-                <Text style={styles.listeningLabel}>Listening...</Text>
+                <Text style={styles.listeningLabel}>
+                  {isTranscribing ? "Transcribing..." : "Listening..."}
+                </Text>
 
                 {/* Pulsating Waveform Circle */}
                 <View style={styles.pulseContainer}>
@@ -1293,24 +1272,38 @@ export default function DashboardHome() {
                     ]}
                   />
                   <View style={styles.microphoneCircle}>
-                    <MaterialCommunityIcons
-                      name="microphone"
-                      size={40}
-                      color="#FFFFFF"
-                    />
+                    {isTranscribing ? (
+                      <ActivityIndicator size="large" color="#FFFFFF" />
+                    ) : (
+                      <MaterialCommunityIcons
+                        name="microphone"
+                        size={40}
+                        color="#FFFFFF"
+                      />
+                    )}
                   </View>
                 </View>
 
                 <Text style={styles.instructionText}>
-                  Speak clearly into your device
+                  {voiceError
+                    ? voiceError
+                    : isTranscribing
+                      ? "Converting your speech to text"
+                      : "Speak clearly, then tap Done"}
                 </Text>
               </View>
 
               <TouchableOpacity
-                style={styles.listeningButton}
+                style={[
+                  styles.listeningButton,
+                  (isTranscribing || !isRecording) && { opacity: 0.6 },
+                ]}
                 onPress={handleListeningComplete}
+                disabled={isTranscribing || !isRecording}
               >
-                <Text style={styles.listeningButtonText}>Done</Text>
+                <Text style={styles.listeningButtonText}>
+                  {isTranscribing ? "Please wait..." : "Done"}
+                </Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -1323,24 +1316,76 @@ export default function DashboardHome() {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.confirmationDetails}>
-                <Text style={styles.detailLabel}>Logged:</Text>
-                <Text style={styles.detailValue}>
-                  {selectedLogType || "General Health Log"}
-                </Text>
-                <Text style={styles.detailSubtext}>
-                  Your entry has been recorded successfully
-                </Text>
-              </View>
+              {voiceTranscript ? (
+                <>
+                  <View style={styles.confirmationDetails}>
+                    <Text style={styles.detailLabel}>You said:</Text>
+                    <Text style={styles.detailValue}>
+                      &quot;{voiceTranscript}&quot;
+                    </Text>
+                  </View>
 
-              <View style={styles.confirmActionRow}>
-                <TouchableOpacity
-                  style={styles.confirmButton}
-                  onPress={handleCloseVoiceAssistant}
-                >
-                  <Text style={styles.confirmButtonText}>Done</Text>
-                </TouchableOpacity>
-              </View>
+                  <Text style={styles.categoryPickerLabel}>Log as:</Text>
+                  <View style={styles.categoryPickerRow}>
+                    {VOICE_CATEGORIES.map((category) => {
+                      const isActive = voiceLogCategory === category.id;
+                      return (
+                        <TouchableOpacity
+                          key={category.id}
+                          onPress={() => setVoiceLogCategory(category.id)}
+                          style={[
+                            styles.categoryPickerChip,
+                            isActive && {
+                              backgroundColor: category.color,
+                              borderColor: category.color,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.categoryPickerChipText,
+                              isActive && styles.categoryPickerChipTextActive,
+                            ]}
+                          >
+                            {category.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.confirmActionRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmButton,
+                        isSavingVoiceLog && { opacity: 0.6 },
+                      ]}
+                      onPress={handleSaveVoiceLog}
+                      disabled={isSavingVoiceLog}
+                    >
+                      <Text style={styles.confirmButtonText}>
+                        {isSavingVoiceLog ? "Saving..." : "Save log"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.confirmationDetails}>
+                    <Text style={styles.detailSubtext}>
+                      No speech was detected. Please try again.
+                    </Text>
+                  </View>
+                  <View style={styles.confirmActionRow}>
+                    <TouchableOpacity
+                      style={styles.confirmButton}
+                      onPress={handleCloseVoiceAssistant}
+                    >
+                      <Text style={styles.confirmButtonText}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
           )}
         </View>
@@ -1848,6 +1893,34 @@ const styles = StyleSheet.create({
   confirmActionRow: {
     flexDirection: "row",
     gap: 10,
+  },
+  categoryPickerLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 10,
+  },
+  categoryPickerRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 20,
+  },
+  categoryPickerChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
+  },
+  categoryPickerChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  categoryPickerChipTextActive: {
+    color: "#FFFFFF",
   },
   confirmButtonSecondary: {
     backgroundColor: "#E5E7EB",

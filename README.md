@@ -71,6 +71,40 @@ In the output, you'll find options to open the app in a
 
 You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
 
+## Voice logging / Speech-to-text
+
+The mic button on the dashboard (`home`) and logs screens records audio and sends
+it to a self-hosted [Whisper](https://github.com/openai/whisper) speech-to-text
+service (cloned into [`stt-service/`](stt-service/)). The Node backend
+**auto-starts** this Python service, so running the backend is all that's needed.
+
+One-time setup (requires Python 3.9+ and FFmpeg on PATH):
+
+```bash
+cd stt-service
+python -m venv venv
+venv\Scripts\python.exe -m pip install -r requirements.txt   # Windows
+# source venv/bin/activate && pip install -r requirements.txt # macOS/Linux
+cp .env.example .env
+```
+
+After that, just run the backend — it spawns the STT service on port `8000`:
+
+```bash
+npm run backend:start
+```
+
+You should see `[stt] Uvicorn running on http://0.0.0.0:8000` in the logs. The app
+reaches it automatically at `<backend-host>:8000` (same LAN IP as the API).
+
+Configuration (in `backend/.env`):
+
+- `STT_AUTOSTART=true` — set to `false` to run `stt-service` manually instead.
+- `STT_PORT=8000` — port the Whisper service binds to.
+
+Override the URL the app uses with `EXPO_PUBLIC_STT_URL` if needed. The first
+transcription downloads the Whisper `tiny` model (~39 MB) and caches it.
+
 ## Get a fresh project
 
 When you're ready, run:
