@@ -4,7 +4,12 @@ import time
 from typing import Dict, Any
 from app.utils.logger import logger
 from app.utils.errors import WhisperProcessingError
+import os
+import shutil
 
+print("FFMPEG =", shutil.which("ffmpeg"))
+print("FFPROBE =", shutil.which("ffprobe"))
+print("PATH =", os.environ["PATH"])
 # Phrases Whisper commonly invents from silence/noise on the smaller models.
 _HALLUCINATION_PHRASES = {
     "thank you.",

@@ -1,6 +1,6 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
     ActivityIndicator,
     Modal,
@@ -13,11 +13,7 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import {
-  deleteDoctorPlan,
-  fetchDoctorDashboard,
-  saveDoctorPlan,
-} from "../../services/api";
+import { fetchDoctorDashboard, saveDoctorPlan } from "../../services/api";
 
 type PlanStatus = "Active" | "Completed" | "Draft";
 type PlanType =
@@ -61,26 +57,6 @@ export default function DocPlansScreen() {
   const [editAdherence, setEditAdherence] = useState("");
   const [editStatus, setEditStatus] = useState<PlanStatus>("Draft");
 
-  // Roster of subscribed patients (for the create-plan patient picker).
-  const [patients, setPatients] = useState<{ name: string; age: number }[]>([]);
-
-  // Delete confirmation.
-  const [planPendingDelete, setPlanPendingDelete] = useState<Plan | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // Create plan modal.
-  const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
-  const [createPatientName, setCreatePatientName] = useState("");
-  const [createPatientAge, setCreatePatientAge] = useState("");
-  const [createPlanType, setCreatePlanType] = useState<PlanType>("Meal Plan");
-  const [createStatus, setCreateStatus] = useState<PlanStatus>("Active");
-  const [createDescription, setCreateDescription] = useState("");
-  const [createGoalsText, setCreateGoalsText] = useState("");
-  const [createStartDate, setCreateStartDate] = useState("");
-  const [createEndDate, setCreateEndDate] = useState("");
-  const [createAdherence, setCreateAdherence] = useState("");
-  const [isSavingCreate, setIsSavingCreate] = useState(false);
-
   useEffect(() => {
     setDoctorName(doctorNameParam || "Doctor");
     setDoctorEmail(emailParam || "doctor@example.com");
@@ -90,56 +66,31 @@ export default function DocPlansScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadPlans = useCallback(async () => {
-    try {
-      const response = await fetchDoctorDashboard(doctorEmail);
-      const mappedPlans: Plan[] = (response.plans || []).map(
-        (plan: any, index: number) => ({
-          id: plan.id || plan._id || String(index + 1),
-          patientName: plan.patientName || "Unknown patient",
-          patientAge: Number(plan.patientAge || 0),
-          planType: plan.planType || "General Health",
-          status: plan.status || "Draft",
-          startDate: plan.startDate || "",
-          endDate: plan.endDate || "",
-          adherence: Number(plan.adherence || 0),
-          description: plan.description || "",
-          goals: Array.isArray(plan.goals) ? plan.goals : [],
-        }),
-      );
-      setAllPlans(mappedPlans);
+        const mappedPlans = (response.plans || []).map(
+          (plan: any, index: number) => ({
+            id: plan.id || plan._id || String(index + 1),
+            patientName: plan.patientName,
+            patientAge: Number(plan.patientAge || 0),
+            planType: plan.planType,
+            status: plan.status,
+            startDate: plan.startDate,
+            endDate: plan.endDate,
+            adherence: Number(plan.adherence || 0),
+            description: plan.description,
+            goals: plan.goals || [],
+          }),
+        );
 
-      setPatients(
-        (response.patients || []).map((patient: any) => ({
-          name: String(patient.name || ""),
-          age: Number(patient.age || 0),
-        })),
-      );
-    } catch (error) {
-      console.log("Failed to load doctor plans:", error);
-    }
+        setAllPlans(mappedPlans);
+      })
+      .catch((error) => console.log("Failed to load doctor plans:", error));
+
+    return () => {
+      active = false;
+    };
   }, [doctorEmail]);
 
-  // Refetch every time the screen is focused so newly created plans show up
-  // (tab screens stay mounted, so a one-shot mount effect would go stale).
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      setLoading(true);
-      loadPlans().finally(() => {
-        if (active) setLoading(false);
-      });
-      return () => {
-        active = false;
-      };
-    }, [loadPlans]),
-  );
-
-  const handleRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadPlans();
-    setRefreshing(false);
-  }, [loadPlans]);
+  const [allPlans, setAllPlans] = useState<Plan[]>([]);
 
   const renderStatusIcon = (status: PlanStatus) => {
     switch (status) {
@@ -1626,15 +1577,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#10B981",
   },
-  deleteButton: {
-    width: 40,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FEE2E2",
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
@@ -1837,104 +1779,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   saveEditButtonText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  saveEditButtonDisabled: {
-    opacity: 0.5,
-  },
-  chipWrapRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 8,
-  },
-  typeSelectChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "#D1D5DB",
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    backgroundColor: "#F3F4F6",
-  },
-  typeSelectChipActive: {
-    backgroundColor: "#3B82F6",
-    borderColor: "#3B82F6",
-  },
-  typeSelectChipText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#6B7280",
-  },
-  typeSelectChipTextActive: {
-    color: "#FFFFFF",
-  },
-  confirmOverlay: {
-    flex: 1,
-    backgroundColor: "#00000066",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 32,
-  },
-  confirmCard: {
-    width: "100%",
-    maxWidth: 340,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 24,
-    alignItems: "center",
-  },
-  confirmIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#FEE2E2",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  confirmTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111827",
-    marginBottom: 8,
-  },
-  confirmText: {
-    fontSize: 14,
-    color: "#6B7280",
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  confirmActions: {
-    flexDirection: "row",
-    gap: 12,
-    width: "100%",
-  },
-  confirmCancelButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: "#F3F4F6",
-    alignItems: "center",
-  },
-  confirmCancelText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#374151",
-  },
-  confirmDeleteButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: "#EF4444",
-    alignItems: "center",
-  },
-  confirmDeleteText: {
     fontSize: 14,
     fontWeight: "700",
     color: "#FFFFFF",

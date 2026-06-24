@@ -54,56 +54,6 @@ function formatTimeAgo(date) {
   return date.toLocaleDateString();
 }
 
-// Infer an alert severity from a symptom log's free-text content. Patient logs
-// don't carry an explicit severity, so we derive one from keywords.
-function inferSeverityFromLog(log) {
-  const value =
-    `${log.title || ""} ${log.subtitle || ""} ${log.note || ""}`.toLowerCase();
-  if (
-    value.includes("severe") ||
-    value.includes("chest pain") ||
-    value.includes("emergency") ||
-    value.includes("faint") ||
-    value.includes("can't breathe") ||
-    value.includes("cant breathe") ||
-    value.includes("unbearable")
-  ) {
-    return "Critical";
-  }
-  if (
-    value.includes("high") ||
-    value.includes("bad") ||
-    value.includes("vomit") ||
-    value.includes("fever") ||
-    value.includes("dizzy") ||
-    value.includes("worse")
-  ) {
-    return "High";
-  }
-  if (
-    value.includes("mild") ||
-    value.includes("slight") ||
-    value.includes("minor") ||
-    value.includes("a little")
-  ) {
-    return "Low";
-  }
-  return "Medium";
-}
-
-// Returns a {change, trend} pair describing the movement from a previous value
-// to a current value, formatted for the analytics stat cards.
-function formatChange(current, previous) {
-  if (previous === 0 && current === 0) {
-    return { change: "—", trend: "up" };
-  }
-  if (previous === 0) {
-    return { change: `+${current}`, trend: "up" };
-  }
-  const pct = Math.round(((current - previous) / previous) * 100);
-  return { change: `${pct >= 0 ? "+" : ""}${pct}%`, trend: pct >= 0 ? "up" : "down" };
-}
-
 function normalizeLogType(type = "", title = "", subtitle = "", note = "") {
   const value = `${type} ${title} ${subtitle} ${note}`.toLowerCase();
 
@@ -214,10 +164,6 @@ router.get("/patient/:email", patientOnly, async (req, res) => {
           stored?.water?.goal ??
           (stored?.water?.unit === "litres" ? 2 : 8),
       },
-      medication: {
-        taken: stored?.medication?.taken ?? (medicationLogs > 0 ? 1 : 0),
-        goal: stored?.medication?.goal ?? 1,
-      },
     };
 
     const metrics = [
@@ -234,9 +180,9 @@ router.get("/patient/:email", patientOnly, async (req, res) => {
       {
         id: "medication",
         title: "Medication",
-        current: healthMetrics.medication.taken,
-        goal: healthMetrics.medication.goal,
-        unit: healthMetrics.medication.goal === 1 ? "dose" : "doses",
+        current: medicationLogs > 0 ? 100 : 0,
+        goal: 100,
+        unit: "%",
         icon: "pill",
         color: "#EC4899",
         backgroundColor: "#FCE7F3",
@@ -409,7 +355,7 @@ router.delete("/patient/:email/logs/:logId", patientOnly, async (req, res) => {
 router.put("/patient/:email/metrics", patientOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
-    const { calories, sleep, water, medication } = req.body;
+    const { calories, sleep, water } = req.body;
     const db = await getDb();
 
     const set = { updatedAt: new Date() };
@@ -431,12 +377,6 @@ router.put("/patient/:email/metrics", patientOnly, async (req, res) => {
         amount: Number(water.amount) || 0,
         unit,
         goal: Number(water.goal) || (unit === "litres" ? 2 : 8),
-      };
-    }
-    if (medication) {
-      set.medication = {
-        taken: Math.max(0, Number(medication.taken) || 0),
-        goal: Math.max(1, Number(medication.goal) || 1),
       };
     }
 
@@ -619,8 +559,6 @@ router.post("/doctor/:email/plans", doctorOnly, async (req, res) => {
           type: mapPlanTypeToPatientType(planType),
           status: status || "Active",
           assignedByDoctor: email,
-          // Link back to the doctor plan so it can be removed together on delete.
-          sourcePlanId: result.insertedId.toString(),
           createdAt: new Date(),
           updatedAt: new Date(),
         });
@@ -637,43 +575,6 @@ router.post("/doctor/:email/plans", doctorOnly, async (req, res) => {
     return res
       .status(500)
       .json({ message: "Failed to save doctor plan.", error: String(error) });
-  }
-});
-
-// Match a doctor plan whether stored with an ObjectId _id or a plain string id,
-// always scoped to the owning doctor.
-function buildPlanFilter(email, planId) {
-  const orMatches = [{ id: planId }];
-  if (ObjectId.isValid(planId)) {
-    orMatches.push({ _id: new ObjectId(planId) });
-  }
-  return { doctorEmail: email, $or: orMatches };
-}
-
-router.delete("/doctor/:email/plans/:planId", doctorOnly, async (req, res) => {
-  try {
-    const email = req.params.email.toLowerCase();
-    const { planId } = req.params;
-    const db = await getDb();
-
-    const result = await db
-      .collection("doctorPlans")
-      .deleteOne(buildPlanFilter(email, planId));
-
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ message: "Plan not found." });
-    }
-
-    // Remove the mirrored copy from the patient's Plans page if one was created.
-    await db
-      .collection("patientPlans")
-      .deleteMany({ assignedByDoctor: email, sourcePlanId: planId });
-
-    return res.json({ message: "Plan deleted." });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({ message: "Failed to delete doctor plan.", error: String(error) });
   }
 });
 
@@ -736,221 +637,97 @@ router.get("/doctor/:email/patients", doctorOnly, async (req, res) => {
 router.get("/doctor/:email/analytics", doctorOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
-    const db = await getDb();
 
-    // Patients subscribed to this doctor (linked when they subscribe).
     const patients = await getCollectionDocs(
       "doctorPatients",
       { doctorEmail: email },
       { createdAt: -1 },
-      500,
+      200,
     );
-    const patientEmails = patients
-      .map((p) => p.patientEmail)
-      .filter(Boolean);
-
-    // Real activity: every log written by those subscribed patients.
-    const logs = patientEmails.length
-      ? await db
-          .collection("patientLogs")
-          .find({ email: { $in: patientEmails } })
-          .sort({ createdAt: -1 })
-          .toArray()
-      : [];
-
+    const alerts = await getCollectionDocs(
+      "doctorAlerts",
+      {},
+      { createdAt: -1 },
+      200,
+    );
     const plans = await getCollectionDocs(
       "doctorPlans",
       { doctorEmail: email },
       { createdAt: -1 },
-      500,
+      200,
     );
-    const patientPlans = patientEmails.length
-      ? await db
-          .collection("patientPlans")
-          .find({ email: { $in: patientEmails } })
-          .toArray()
-      : [];
+    const activities = await getCollectionDocs(
+      "doctorActivities",
+      {},
+      { createdAt: -1 },
+      200,
+    );
 
     const totalPatients = patients.length;
-    const now = Date.now();
-    const DAY = 86400000;
-    const within = (date, days) => {
-      if (!date) return false;
-      const t = new Date(date).getTime();
-      return !Number.isNaN(t) && now - t <= days * DAY;
-    };
-    // True when `date` falls between `from` and `to` days ago (a past window).
-    const inWindow = (date, fromDays, toDays) => {
-      if (!date) return false;
-      const t = new Date(date).getTime();
-      if (Number.isNaN(t)) return false;
-      const age = now - t;
-      return age > fromDays * DAY && age <= toDays * DAY;
-    };
-
-    // ---- Group logs per patient and compute real per-patient metrics ----
-    const logsByPatient = {};
-    logs.forEach((log) => {
-      (logsByPatient[log.email] ||= []).push(log);
-    });
-
-    const patientUpdates = [];
-    const patientsWithMetrics = patients.map((patient) => {
-      const pLogs = logsByPatient[patient.patientEmail] || [];
-      // Adherence = share of the last 7 days on which the patient logged at
-      // least once (a real engagement signal derived from their activity).
-      const daysLogged = new Set();
-      let openSymptoms = 0;
-      pLogs.forEach((log) => {
-        if (within(log.createdAt, 7)) {
-          daysLogged.add(new Date(log.createdAt).toDateString());
-        }
-        if (log.type === "symptom" && within(log.createdAt, 7)) {
-          openSymptoms += 1;
-        }
-      });
-      const adherence = Math.round((daysLogged.size / 7) * 100);
-      const lastLog = pLogs[0]; // logs are sorted newest first
-      const lastActivity = lastLog
-        ? formatTimeAgo(new Date(lastLog.createdAt))
-        : "No activity";
-      const planCount = patientPlans.filter(
-        (pl) => pl.email === patient.patientEmail,
-      ).length;
-      const trend =
-        adherence >= 70 ? "up" : adherence >= 40 ? "stable" : "down";
-
-      // Persist the freshly computed metrics so the Patients page reflects them.
-      patientUpdates.push({
-        updateOne: {
-          filter: { doctorEmail: email, patientEmail: patient.patientEmail },
-          update: {
-            $set: {
-              adherence,
-              alerts: openSymptoms,
-              lastActivity,
-              logsCount: pLogs.length,
-              planCount,
-              trend,
-              metricsUpdatedAt: new Date(),
-            },
-          },
-        },
-      });
-
-      return {
-        ...patient,
-        adherence,
-        alerts: openSymptoms,
-        lastActivity,
-        logsCount: pLogs.length,
-        planCount,
-        trend,
-      };
-    });
-
-    if (patientUpdates.length) {
-      await db.collection("doctorPatients").bulkWrite(patientUpdates);
-    }
-
-    // ---- Stat cards (current vs previous 7-day window) ----
-    const newPatientsThisWeek = patients.filter((p) =>
-      within(p.createdAt, 7),
-    ).length;
-    const newPatientsPrevWeek = patients.filter((p) =>
-      inWindow(p.createdAt, 7, 14),
-    ).length;
-
-    const activeThisWeek = patientsWithMetrics.filter((p) =>
-      (logsByPatient[p.patientEmail] || []).some((l) => within(l.createdAt, 7)),
-    ).length;
-    const activePrevWeek = patientsWithMetrics.filter((p) =>
-      (logsByPatient[p.patientEmail] || []).some((l) =>
-        inWindow(l.createdAt, 7, 14),
-      ),
-    ).length;
-
-    const logsThisWeek = logs.filter((l) => within(l.createdAt, 7)).length;
-    const logsPrevWeek = logs.filter((l) =>
-      inWindow(l.createdAt, 7, 14),
-    ).length;
-
-    const plansThisWeek = plans.filter((p) => within(p.createdAt, 7)).length;
-    const plansPrevWeek = plans.filter((p) =>
-      inWindow(p.createdAt, 7, 14),
-    ).length;
-
-    const patientChange = formatChange(
-      newPatientsThisWeek,
-      newPatientsPrevWeek,
-    );
-    const activeChange = formatChange(activeThisWeek, activePrevWeek);
-    const logsChange = formatChange(logsThisWeek, logsPrevWeek);
-    const plansChange = formatChange(plansThisWeek, plansPrevWeek);
+    const resolvedAlerts = alerts.filter((a) => a.isResolved).length;
 
     const stats = [
       {
         id: "1",
         title: "Total Patients",
         value: String(totalPatients),
-        change: patientChange.change,
-        trend: patientChange.trend,
+        change: "-",
+        trend: "up",
         color: "#3B82F6",
         icon: "account-group",
       },
       {
         id: "2",
-        title: "Active This Week",
-        value: String(activeThisWeek),
-        change: activeChange.change,
-        trend: activeChange.trend,
+        title: "Active Cases",
+        value: String(patients.filter((p) => p.adherence > 70).length),
+        change: "-",
+        trend: "up",
         color: "#10B981",
-        icon: "pulse",
+        icon: "medical-bag",
       },
       {
         id: "3",
-        title: "Logs This Week",
-        value: String(logsThisWeek),
-        change: logsChange.change,
-        trend: logsChange.trend,
+        title: "Alerts Resolved",
+        value: String(resolvedAlerts),
+        change: "-",
+        trend: "up",
         color: "#F59E0B",
-        icon: "notebook-check",
+        icon: "alert-circle-check",
       },
       {
         id: "4",
         title: "Plans Assigned",
         value: String(plans.length),
-        change: plansChange.change,
-        trend: plansChange.trend,
+        change: "-",
+        trend: "up",
         color: "#8B5CF6",
         icon: "clipboard-text",
       },
     ];
 
-    // ---- Patients by condition: one entry per patient, labelled by name with
-    // their condition(s) shown alongside (from real patient profiles). ----
-    const patientsByCondition = patients.map((p, index) => {
-      const conditions = (p.conditions || []).filter(Boolean);
-      return {
-        label: p.name || (p.patientEmail || "").split("@")[0] || "Patient",
-        condition: conditions.length ? conditions.join(", ") : "No condition",
-        value: 1,
-        percentage: totalPatients
-          ? Math.round((1 / totalPatients) * 1000) / 10
-          : 0,
-      };
+    const conditionCounts = {};
+    patients.forEach((p) => {
+      (p.conditions || []).forEach((condition) => {
+        conditionCounts[condition] = (conditionCounts[condition] || 0) + 1;
+      });
     });
 
+    const totalConditions =
+      Object.values(conditionCounts).reduce((sum, value) => sum + value, 0) ||
+      1;
+    const patientsByCondition = Object.entries(conditionCounts).map(
+      ([label, value]) => ({
+        label,
+        value,
+        percentage: Math.round((value / totalConditions) * 1000) / 10,
+      }),
+    );
+
     if (patientsByCondition.length === 0) {
-      patientsByCondition.push({
-        label: "No data",
-        condition: "",
-        value: 0,
-        percentage: 0,
-      });
+      patientsByCondition.push({ label: "No data", value: 0, percentage: 0 });
     }
 
-    // ---- Weekly activity (real per-day log counts, last 7 days oldest→newest) ----
+    // Real per-day activity counts for the last 7 calendar days (oldest first).
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const today = new Date();
     const dailyCounts = [];
@@ -961,8 +738,8 @@ router.get("/doctor/:email/analytics", doctorOnly, async (req, res) => {
       const dayEnd = new Date(dayStart);
       dayEnd.setDate(dayStart.getDate() + 1);
 
-      const count = logs.filter((log) => {
-        const created = new Date(log.createdAt);
+      const count = activities.filter((activity) => {
+        const created = new Date(activity.createdAt);
         return created >= dayStart && created < dayEnd;
       }).length;
 
@@ -974,37 +751,13 @@ router.get("/doctor/:email/analytics", doctorOnly, async (req, res) => {
       percentage: Math.round((d.value / maxDailyCount) * 100),
     }));
 
-    // ---- Activity breakdown by log type (real) ----
-    const typeMeta = {
-      meal: { label: "Meals", color: "#F59E0B" },
-      exercise: { label: "Exercise", color: "#3B82F6" },
-      vitals: { label: "Vitals", color: "#EF4444" },
-      medication: { label: "Medication", color: "#EC4899" },
-      symptom: { label: "Symptoms", color: "#8B5CF6" },
-    };
-    const typeCounts = {};
-    logs.forEach((log) => {
-      const t = typeMeta[log.type] ? log.type : "symptom";
-      typeCounts[t] = (typeCounts[t] || 0) + 1;
-    });
-    const totalTyped = Object.values(typeCounts).reduce((s, v) => s + v, 0) || 1;
-    const activityBreakdown = Object.keys(typeMeta)
-      .map((type) => ({
-        label: typeMeta[type].label,
-        value: typeCounts[type] || 0,
-        color: typeMeta[type].color,
-        percentage: Math.round(((typeCounts[type] || 0) / totalTyped) * 1000) / 10,
-      }))
-      .filter((item) => item.value > 0)
-      .sort((a, b) => b.value - a.value);
-
-    // ---- Alert distribution: symptom logs grouped by inferred severity ----
-    const symptomLogs = logs.filter((log) => log.type === "symptom");
     const severityCounts = { Critical: 0, High: 0, Medium: 0, Low: 0 };
-    symptomLogs.forEach((log) => {
-      severityCounts[inferSeverityFromLog(log)] += 1;
+    alerts.forEach((alert) => {
+      if (severityCounts[alert.severity] !== undefined)
+        severityCounts[alert.severity] += 1;
     });
-    const totalSymptoms = symptomLogs.length || 1;
+
+    const totalAlerts = alerts.length || 1;
     const alertTrends = Object.entries(severityCounts).map(
       ([severity, count]) => ({
         severity,
@@ -1017,12 +770,14 @@ router.get("/doctor/:email/analytics", doctorOnly, async (req, res) => {
               : severity === "Medium"
                 ? "#3B82F6"
                 : "#10B981",
-        percentage: Math.round((count / totalSymptoms) * 1000) / 10,
+        percentage: Math.round((count / totalAlerts) * 1000) / 10,
       }),
     );
 
-    // ---- Performance metrics (all derived from real activity) ----
-    const adherenceValues = patientsWithMetrics.map((p) => p.adherence);
+    // Performance metrics derived from real patient/alert/plan records.
+    const adherenceValues = patients
+      .map((p) => Number(p.adherence))
+      .filter((n) => !Number.isNaN(n));
     const avgAdherence = adherenceValues.length
       ? Math.round(
           adherenceValues.reduce((sum, n) => sum + n, 0) /
@@ -1030,19 +785,16 @@ router.get("/doctor/:email/analytics", doctorOnly, async (req, res) => {
         )
       : 0;
     const activeRate = totalPatients
-      ? Math.round((activeThisWeek / totalPatients) * 100)
+      ? Math.round(
+          (patients.filter((p) => p.adherence > 70).length / totalPatients) *
+            100,
+        )
       : 0;
-    const patientsWithPlan = patientsWithMetrics.filter(
-      (p) => p.planCount > 0,
-    ).length;
+    const alertResolutionRate = alerts.length
+      ? Math.round((resolvedAlerts / alerts.length) * 100)
+      : 0;
     const planCoverage = totalPatients
-      ? Math.round((patientsWithPlan / totalPatients) * 100)
-      : 0;
-    const engagedLast30 = patientsWithMetrics.filter((p) =>
-      (logsByPatient[p.patientEmail] || []).some((l) => within(l.createdAt, 30)),
-    ).length;
-    const engagementRate = totalPatients
-      ? Math.round((engagedLast30 / totalPatients) * 100)
+      ? Math.min(100, Math.round((plans.length / totalPatients) * 100))
       : 0;
 
     const performanceMetrics = [];
@@ -1055,64 +807,56 @@ router.get("/doctor/:email/analytics", doctorOnly, async (req, res) => {
         },
         { label: "Active Patient Rate", value: activeRate, color: "#3B82F6" },
         { label: "Care Plan Coverage", value: planCoverage, color: "#F59E0B" },
-        {
-          label: "30-Day Engagement",
-          value: engagementRate,
-          color: "#8B5CF6",
-        },
       );
     }
+    if (alerts.length > 0) {
+      performanceMetrics.push({
+        label: "Alert Resolution Rate",
+        value: alertResolutionRate,
+        color: "#8B5CF6",
+      });
+    }
 
-    // ---- Key insights (generated from real activity) ----
+    // Key insights generated from real activity over recent time windows.
+    const now = Date.now();
+    const within = (date, days) => {
+      if (!date) return false;
+      const t = new Date(date).getTime();
+      return !Number.isNaN(t) && now - t <= days * 86400000;
+    };
     const newPatients30 = patients.filter((p) =>
       within(p.createdAt, 30),
     ).length;
-    const criticalSymptoms7 = symptomLogs.filter(
-      (log) => within(log.createdAt, 7) && inferSeverityFromLog(log) === "Critical",
+    const resolved7 = alerts.filter(
+      (a) => a.isResolved && within(a.updatedAt || a.createdAt, 7),
     ).length;
-    const inactivePatients = patientsWithMetrics.filter(
-      (p) => !(logsByPatient[p.patientEmail] || []).some((l) => within(l.createdAt, 7)),
+    const criticalPending = alerts.filter(
+      (a) => !a.isResolved && a.severity === "Critical",
     ).length;
 
     const insights = [];
-    if (totalPatients === 0) {
-      insights.push({
-        id: "no-patients",
-        icon: "people",
-        color: "#6B7280",
-        text: "No patients have subscribed to you yet. Analytics will populate as patients join and log activity.",
-      });
-    }
     if (newPatients30 > 0) {
       insights.push({
         id: "new-patients",
         icon: "people",
         color: "#F59E0B",
-        text: `${newPatients30} new patient${newPatients30 === 1 ? "" : "s"} subscribed in the last 30 days`,
+        text: `${newPatients30} new patient${newPatients30 === 1 ? "" : "s"} added in the last 30 days`,
       });
     }
-    if (logsThisWeek > 0) {
+    if (resolved7 > 0) {
       insights.push({
-        id: "logs",
-        icon: "create",
+        id: "resolved",
+        icon: "checkmark-circle",
         color: "#10B981",
-        text: `${logsThisWeek} activit${logsThisWeek === 1 ? "y" : "ies"} logged by your patients this week`,
+        text: `${resolved7} alert${resolved7 === 1 ? "" : "s"} resolved in the last 7 days`,
       });
     }
-    if (criticalSymptoms7 > 0) {
+    if (criticalPending > 0) {
       insights.push({
         id: "critical",
         icon: "alert-circle",
         color: "#EF4444",
-        text: `${criticalSymptoms7} critical symptom${criticalSymptoms7 === 1 ? "" : "s"} reported in the last 7 days`,
-      });
-    }
-    if (inactivePatients > 0 && totalPatients > 0) {
-      insights.push({
-        id: "inactive",
-        icon: "alert",
-        color: "#F59E0B",
-        text: `${inactivePatients} patient${inactivePatients === 1 ? " has" : "s have"} not logged anything this week`,
+        text: `${criticalPending} critical alert${criticalPending === 1 ? "" : "s"} awaiting response`,
       });
     }
     if (avgAdherence > 0) {
@@ -1127,10 +871,8 @@ router.get("/doctor/:email/analytics", doctorOnly, async (req, res) => {
     return res.json({
       stats,
       totalPatients,
-      totalLogs: logs.length,
       patientsByCondition,
       weeklyActivity,
-      activityBreakdown,
       alertTrends,
       performanceMetrics,
       insights,

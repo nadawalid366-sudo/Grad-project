@@ -4,14 +4,13 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
     Dimensions,
-    RefreshControl,
-    SafeAreaView,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
 } from "react-native";
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchDoctorAnalytics } from "../../services/api";
 
 const { width } = Dimensions.get("window");
@@ -60,6 +59,26 @@ interface Insight {
   color: string;
 }
 
+interface AlertTrend {
+  severity: string;
+  count: number;
+  percentage: number;
+  color: string;
+}
+
+interface PerformanceMetric {
+  label: string;
+  value: number;
+  color: string;
+}
+
+interface Insight {
+  id: string;
+  text: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+}
+
 export default function Analytics() {
   const { email: emailParam, doctorName: doctorNameParam } =
     useLocalSearchParams<{ email?: string; doctorName?: string }>();
@@ -91,28 +110,24 @@ export default function Analytics() {
     }
   }, [emailParam]);
 
+  const loadAnalytics = useCallback(async () => {
+    const email = emailParam || "doctor@example.com";
+    try {
+      const response = await fetchDoctorAnalytics(email);
+      setAnalyticsData(response);
+    } catch (error) {
+      console.log("Failed to load analytics:", error);
+    }
+  }, [emailParam]);
+
   useEffect(() => {
     let active = true;
-    setLoading(true);
     fetchDoctorAnalytics(emailParam || "doctor@example.com")
       .then((response) => {
-        if (active) {
-          setAnalyticsData(response);
-          setErrorMessage(null);
-        }
+        if (active) setAnalyticsData(response);
       })
       .catch((error) => {
         console.log("Failed to load analytics:", error);
-        if (active) {
-          setErrorMessage(
-            error instanceof Error
-              ? error.message
-              : "Failed to load analytics.",
-          );
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
       });
 
     return () => {
@@ -125,13 +140,10 @@ export default function Analytics() {
     analyticsData?.patientsByCondition || [];
   const weeklyActivity: ChartData[] = analyticsData?.weeklyActivity || [];
   const alertTrends: AlertTrend[] = analyticsData?.alertTrends || [];
-  const activityBreakdown: ActivityBreakdownItem[] =
-    analyticsData?.activityBreakdown || [];
   const performanceMetrics: PerformanceMetric[] =
     analyticsData?.performanceMetrics || [];
   const insights: Insight[] = analyticsData?.insights || [];
   const totalPatients: number = analyticsData?.totalPatients ?? 0;
-  const totalLogs: number = analyticsData?.totalLogs ?? 0;
 
   const renderStatCard = (stat: StatCard) => (
     <View
@@ -227,7 +239,7 @@ export default function Analytics() {
               <View style={styles.legendText}>
                 <Text style={styles.legendLabel}>{item.label}</Text>
                 <Text style={styles.legendValue}>
-                  {item.condition ?? `${item.value} (${item.percentage.toFixed(1)}%)`}
+                  {item.value} ({item.percentage.toFixed(1)}%)
                 </Text>
               </View>
             </View>
@@ -426,8 +438,6 @@ export default function Analytics() {
               ))}
             </View>
           </View>
-        )}
-          </>
         )}
 
         <View style={{ height: 100 }} />

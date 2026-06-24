@@ -153,6 +153,17 @@ export default function TabLayout() {
         }}
       />
 
+      {/* AI Chat Tab */}
+      <Tabs.Screen
+  name="ai-chat"
+  options={{
+    title: "AI Chat",
+    tabBarIcon: ({ color }) => (
+      <IconSymbol size={28} name="message.fill" color={color} />
+    ),
+  }}
+/>
+
       {/* Doctor Tabs */}
       <Tabs.Screen
         name="dochome"

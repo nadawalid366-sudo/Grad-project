@@ -135,3 +135,4 @@ const recordingService: WebRecordingService | NativeRecordingService =
   Platform.OS === 'web' ? new WebRecordingService() : new NativeRecordingService();
 
 export { recordingService };
+

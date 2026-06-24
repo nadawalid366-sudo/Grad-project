@@ -57,7 +57,9 @@
         {
           "microphonePermission": "Allow $(PRODUCT_NAME) to record audio for voice logging."
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,

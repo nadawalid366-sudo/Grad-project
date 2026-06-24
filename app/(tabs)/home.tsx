@@ -28,14 +28,12 @@ interface HealthMetrics {
   calories: { current: number; goal: number };
   sleep: { bedtime: string; wakeTime: string };
   water: { amount: number; unit: WaterUnit; goal: number };
-  medication: { taken: number; goal: number };
 }
 
 const DEFAULT_HEALTH_METRICS: HealthMetrics = {
   calories: { current: 0, goal: 2000 },
   sleep: { bedtime: "23:00", wakeTime: "07:00" },
   water: { amount: 0, unit: "cups", goal: 8 },
-  medication: { taken: 0, goal: 1 },
 };
 
 // Format a "HH:MM" 24h string as a 12h label, e.g. "23:00" -> "11:00 PM".
@@ -61,6 +59,27 @@ const computeSleepHours = (bedtime: string, wakeTime: string) => {
   let mins = wh * 60 + wm - (bh * 60 + bm);
   if (mins <= 0) mins += 24 * 60;
   return Math.round((mins / 60) * 10) / 10;
+};
+
+// Voice logging records audio with expo-audio (works in Expo Go) and sends it
+// to the local Whisper speech-to-text service — see useVoiceTranscription.
+
+type VoiceCategory = "meal" | "exercise" | "vitals" | "medication" | "symptom";
+
+const VOICE_CATEGORIES: { id: VoiceCategory; label: string; color: string }[] = [
+  { id: "meal", label: "Meal", color: "#F59E0B" },
+  { id: "exercise", label: "Exercise", color: "#3B82F6" },
+  { id: "vitals", label: "Vitals", color: "#EF4444" },
+  { id: "medication", label: "Medication", color: "#EC4899" },
+  { id: "symptom", label: "Symptom", color: "#8B5CF6" },
+];
+
+const VOICE_CATEGORY_LABELS: Record<VoiceCategory, string> = {
+  meal: "Log Meal",
+  exercise: "Log Exercise",
+  vitals: "Log Vitals",
+  medication: "Log Medication",
+  symptom: "Log Symptom",
 };
 
 // Voice logging records audio with expo-audio (works in Expo Go) and sends it
@@ -129,6 +148,7 @@ export default function DashboardHome() {
   const [quickLogValue, setQuickLogValue] = useState("");
   const [quickLogNote, setQuickLogNote] = useState("");
   const [quickLogEntries, setQuickLogEntries] = useState<QuickLogEntry[]>([]);
+  const [dashboardMetrics, setDashboardMetrics] = useState<MetricCard[]>([]);
   const [dashboardActivities, setDashboardActivities] = useState<
     ActivityItem[]
   >([]);
@@ -139,15 +159,13 @@ export default function DashboardHome() {
     DEFAULT_HEALTH_METRICS,
   );
   const [editMetric, setEditMetric] = useState<
-    null | "calories" | "sleep" | "water" | "medication"
+    null | "calories" | "sleep" | "water"
   >(null);
   const [draftCalories, setDraftCalories] = useState("");
   const [draftBedtime, setDraftBedtime] = useState("");
   const [draftWakeTime, setDraftWakeTime] = useState("");
   const [draftWaterAmount, setDraftWaterAmount] = useState("");
   const [draftWaterUnit, setDraftWaterUnit] = useState<WaterUnit>("cups");
-  const [draftMedTaken, setDraftMedTaken] = useState("");
-  const [draftMedGoal, setDraftMedGoal] = useState("");
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const {
     isRecording,
@@ -184,6 +202,19 @@ export default function DashboardHome() {
       .then(([response, latestLogs]) => {
         if (!active) return;
 
+        const mappedMetrics: MetricCard[] = (response.metrics || []).map(
+          (metric: Record<string, any>, index: number) => ({
+            id: String(metric.id || index + 1),
+            title: String(metric.title || "Metric"),
+            current: Number(metric.current ?? metric.value ?? 0),
+            goal: Number(metric.goal ?? 100),
+            unit: String(metric.unit || ""),
+            icon: String(metric.icon || "chart-bar"),
+            color: String(metric.color || "#3B82F6"),
+            backgroundColor: String(metric.backgroundColor || "#DBEAFE"),
+          }),
+        );
+
         const mappedQuickActions: QuickAction[] = (
           response.quickActions || []
         ).map((action: Record<string, any>, index: number) => ({
@@ -210,10 +241,6 @@ export default function DashboardHome() {
               amount: Number(hm.water?.amount ?? 0),
               unit: hm.water?.unit === "litres" ? "litres" : "cups",
               goal: Number(hm.water?.goal ?? 8),
-            },
-            medication: {
-              taken: Number(hm.medication?.taken ?? 0),
-              goal: Number(hm.medication?.goal ?? 1),
             },
           });
         }
@@ -560,12 +587,6 @@ export default function DashboardHome() {
     setEditMetric("water");
   };
 
-  const handleEditMedication = () => {
-    setDraftMedTaken(String(healthMetrics.medication.taken));
-    setDraftMedGoal(String(healthMetrics.medication.goal));
-    setEditMetric("medication");
-  };
-
   const handleCloseEdit = () => setEditMetric(null);
 
   const handleSaveCalories = () => {
@@ -608,19 +629,18 @@ export default function DashboardHome() {
     setEditMetric(null);
   };
 
-  const handleSaveMedication = () => {
-    const goal = Math.max(1, Math.round(Number(draftMedGoal) || 1));
-    const taken = Math.min(
-      goal,
-      Math.max(0, Math.round(Number(draftMedTaken) || 0)),
-    );
-    persistHealthMetrics({
-      ...healthMetrics,
-      medication: { taken, goal },
-    });
-    setEditMetric(null);
+  const medicationCard: MetricCard = dashboardMetrics.find(
+    (m) => m.id === "medication",
+  ) || {
+    id: "medication",
+    title: "Medication",
+    current: 0,
+    goal: 100,
+    unit: "%",
+    icon: "pill",
+    color: "#EC4899",
+    backgroundColor: "#FCE7F3",
   };
-
   const recentActivities: ActivityItem[] = dashboardActivities;
   const quickActions: QuickAction[] =
     dashboardQuickActions.length > 0
@@ -670,20 +690,24 @@ export default function DashboardHome() {
         onPress={handleEditCalories}
       >
         <View style={styles.metricHeader}>
-          <View style={[styles.metricIcon, { backgroundColor: "#DCFCE7" }]}>
+          <View
+            style={[
+              styles.metricIcon,
+              { backgroundColor: card.backgroundColor },
+            ]}
+          >
             <MaterialCommunityIcons
-              name="fire"
+              name={card.icon as any}
               size={isCompact ? 18 : 20}
-              color="#10B981"
+              color={card.color}
             />
           </View>
           <Text
             style={[styles.metricTitle, isCompact && styles.metricTitleCompact]}
             numberOfLines={1}
           >
-            Calories
+            {card.title}
           </Text>
-          <MaterialCommunityIcons name="pencil" size={14} color="#9CA3AF" />
         </View>
 
         <View style={styles.metricValue}>
@@ -693,12 +717,12 @@ export default function DashboardHome() {
               isCompact && styles.metricNumberCompact,
             ]}
           >
-            {current}
+            {card.current}
           </Text>
           <Text
             style={[styles.metricUnit, isCompact && styles.metricUnitCompact]}
           >
-            / {goal} kcal
+            / {card.goal} {card.unit}
           </Text>
         </View>
 
@@ -876,6 +900,167 @@ export default function DashboardHome() {
     );
   };
 
+  const renderCaloriesCard = () => {
+    const { current, goal } = healthMetrics.calories;
+    const displayProgress = Math.min((current / goal) * 100, 100);
+
+    return (
+      <TouchableOpacity
+        style={styles.metricCard}
+        activeOpacity={0.85}
+        onPress={handleEditCalories}
+      >
+        <View style={styles.metricHeader}>
+          <View style={[styles.metricIcon, { backgroundColor: "#DCFCE7" }]}>
+            <MaterialCommunityIcons
+              name="fire"
+              size={isCompact ? 18 : 20}
+              color="#10B981"
+            />
+          </View>
+          <Text
+            style={[styles.metricTitle, isCompact && styles.metricTitleCompact]}
+            numberOfLines={1}
+          >
+            Calories
+          </Text>
+          <MaterialCommunityIcons name="pencil" size={14} color="#9CA3AF" />
+        </View>
+
+        <View style={styles.metricValue}>
+          <Text
+            style={[
+              styles.metricNumber,
+              isCompact && styles.metricNumberCompact,
+            ]}
+          >
+            {current}
+          </Text>
+          <Text
+            style={[styles.metricUnit, isCompact && styles.metricUnitCompact]}
+          >
+            / {goal} kcal
+          </Text>
+        </View>
+
+        <View style={styles.progressBarContainer}>
+          <View
+            style={[
+              styles.progressBar,
+              { width: `${displayProgress}%`, backgroundColor: "#10B981" },
+            ]}
+          />
+        </View>
+        <Text style={styles.progressText}>{Math.round(displayProgress)}%</Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSleepCard = () => {
+    const hours = computeSleepHours(
+      healthMetrics.sleep.bedtime,
+      healthMetrics.sleep.wakeTime,
+    );
+
+    return (
+      <TouchableOpacity
+        style={[styles.metricCard, styles.bpMetricCard]}
+        activeOpacity={0.85}
+        onPress={handleEditSleep}
+      >
+        <View style={styles.metricHeader}>
+          <View style={[styles.metricIcon, { backgroundColor: "#EDE9FE" }]}>
+            <MaterialCommunityIcons
+              name="sleep"
+              size={isCompact ? 18 : 20}
+              color="#8B5CF6"
+            />
+          </View>
+          <Text
+            style={[styles.metricTitle, isCompact && styles.metricTitleCompact]}
+            numberOfLines={1}
+          >
+            Sleep Schedule
+          </Text>
+          <MaterialCommunityIcons name="pencil" size={14} color="#9CA3AF" />
+        </View>
+
+        <View style={styles.bpMetricValueRow}>
+          <Text
+            style={[
+              styles.bpMetricValue,
+              isCompact && styles.bpMetricValueCompact,
+            ]}
+          >
+            {hours}
+          </Text>
+          <Text style={styles.bpMetricUnit}>hrs</Text>
+        </View>
+
+        <Text style={styles.sleepScheduleText} numberOfLines={1}>
+          {formatTime12(healthMetrics.sleep.bedtime)} →{" "}
+          {formatTime12(healthMetrics.sleep.wakeTime)}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderWaterCard = () => {
+    const { amount, unit, goal } = healthMetrics.water;
+    const displayProgress = Math.min((amount / goal) * 100, 100);
+
+    return (
+      <TouchableOpacity
+        style={styles.metricCard}
+        activeOpacity={0.85}
+        onPress={handleEditWater}
+      >
+        <View style={styles.metricHeader}>
+          <View style={[styles.metricIcon, { backgroundColor: "#E0F2FE" }]}>
+            <MaterialCommunityIcons
+              name="cup-water"
+              size={isCompact ? 18 : 20}
+              color="#0EA5E9"
+            />
+          </View>
+          <Text
+            style={[styles.metricTitle, isCompact && styles.metricTitleCompact]}
+            numberOfLines={1}
+          >
+            Water Intake
+          </Text>
+          <MaterialCommunityIcons name="pencil" size={14} color="#9CA3AF" />
+        </View>
+
+        <View style={styles.metricValue}>
+          <Text
+            style={[
+              styles.metricNumber,
+              isCompact && styles.metricNumberCompact,
+            ]}
+          >
+            {amount}
+          </Text>
+          <Text
+            style={[styles.metricUnit, isCompact && styles.metricUnitCompact]}
+          >
+            / {goal} {unit}
+          </Text>
+        </View>
+
+        <View style={styles.progressBarContainer}>
+          <View
+            style={[
+              styles.progressBar,
+              { width: `${displayProgress}%`, backgroundColor: "#0EA5E9" },
+            ]}
+          />
+        </View>
+        <Text style={styles.progressText}>{Math.round(displayProgress)}%</Text>
+      </TouchableOpacity>
+    );
+  };
+
   const renderActivityItem = (item: ActivityItem) => (
     <View key={item.id} style={styles.activityItem}>
       <View
@@ -942,7 +1127,7 @@ export default function DashboardHome() {
           </View>
 
           <View style={styles.mainGridRow}>
-            {renderMedicationCard()}
+            {renderMetricCard(medicationCard)}
             {renderWaterCard()}
           </View>
         </View>
@@ -1046,9 +1231,7 @@ export default function DashboardHome() {
                   ? "Edit Calories"
                   : editMetric === "sleep"
                     ? "Edit Sleep Schedule"
-                    : editMetric === "medication"
-                      ? "Edit Medication"
-                      : "Edit Water Intake"}
+                    : "Edit Water Intake"}
               </Text>
               <TouchableOpacity onPress={handleCloseEdit}>
                 <Ionicons name="close" size={24} color="#6B7280" />
@@ -1156,35 +1339,6 @@ export default function DashboardHome() {
                 <TouchableOpacity
                   style={styles.quickLogSaveButton}
                   onPress={handleSaveWater}
-                >
-                  <Text style={styles.quickLogSaveButtonText}>Save</Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            {editMetric === "medication" && (
-              <>
-                <Text style={styles.quickLogLabel}>Doses taken</Text>
-                <TextInput
-                  style={styles.quickLogInput}
-                  placeholder="e.g. 1"
-                  placeholderTextColor="#9CA3AF"
-                  keyboardType="numeric"
-                  value={draftMedTaken}
-                  onChangeText={setDraftMedTaken}
-                />
-                <Text style={styles.quickLogLabel}>Daily goal (doses)</Text>
-                <TextInput
-                  style={styles.quickLogInput}
-                  placeholder="e.g. 2"
-                  placeholderTextColor="#9CA3AF"
-                  keyboardType="numeric"
-                  value={draftMedGoal}
-                  onChangeText={setDraftMedGoal}
-                />
-                <TouchableOpacity
-                  style={styles.quickLogSaveButton}
-                  onPress={handleSaveMedication}
                 >
                   <Text style={styles.quickLogSaveButtonText}>Save</Text>
                 </TouchableOpacity>

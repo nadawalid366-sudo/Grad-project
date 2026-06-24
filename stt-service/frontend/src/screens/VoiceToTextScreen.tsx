@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { RecordButton } from '../components/RecordButton';
 import { TranscriptDisplay } from '../components/TranscriptDisplay';
 import { useVoiceToText } from '../hooks/useVoiceToText';

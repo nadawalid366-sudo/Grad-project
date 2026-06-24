@@ -5,7 +5,8 @@ import { useEffect } from 'react';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { setUnauthorizedHandler } from '../services/api';
+import { API_BASE_URL, setUnauthorizedHandler } from '../services/api';
+import { initializeAIChatAPI } from '../services/aiChatService';
 import { getUser, initAuth } from '../services/auth';
 
 export const unstable_settings = {
@@ -28,6 +29,10 @@ export default function RootLayout() {
     initAuth().then(() => {
       if (!active) return;
       const user = getUser();
+      
+      // Initialize AI Chat API
+      initializeAIChatAPI(API_BASE_URL);
+      
       if (user) {
         // Restore the session: jump straight to the right dashboard.
         router.replace({

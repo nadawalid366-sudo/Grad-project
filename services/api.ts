@@ -443,7 +443,6 @@ export type PatientDashboard = {
     calories: { current: number; goal: number };
     sleep: { bedtime: string; wakeTime: string };
     water: { amount: number; unit: "cups" | "litres"; goal: number };
-    medication: { taken: number; goal: number };
   };
   recentActivities: Record<string, unknown>[];
   quickActions: Record<string, unknown>[];
@@ -547,7 +546,6 @@ export async function savePatientMetrics(
     calories?: { current: number; goal: number };
     sleep?: { bedtime: string; wakeTime: string };
     water?: { amount: number; unit: "cups" | "litres"; goal: number };
-    medication?: { taken: number; goal: number };
   },
 ) {
   return apiRequest<{ message: string }>(
@@ -601,15 +599,6 @@ export async function saveDoctorPlan(
     {
       method: "POST",
       body: payload,
-    },
-  );
-}
-
-export async function deleteDoctorPlan(email: string, planId: string) {
-  return apiRequest<{ message: string }>(
-    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans/${encodeURIComponent(planId)}`,
-    {
-      method: "DELETE",
     },
   );
 }

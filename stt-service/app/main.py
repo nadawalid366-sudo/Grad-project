@@ -16,6 +16,10 @@ from app.utils.logger import logger
 
 load_dotenv()
 
+import os
+
+os.environ["PATH"] += r";C:\ffmpeg\bin\ffmpeg.exe"
+
 # ── Optional API key protection ───────────────────────────────────────────────
 # Set API_KEY in .env to require authentication.
 # Leave it empty / unset to allow open access (good for local development).

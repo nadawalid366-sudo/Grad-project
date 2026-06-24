@@ -8,13 +8,13 @@ import {
     Modal,
     Platform,
     Pressable,
-    SafeAreaView,
     ScrollView,
     StyleSheet,
     Text,
     TextInput,
     View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { saveUserSubscription } from '../services/api';
 
 export default function PaymentScreen() {
