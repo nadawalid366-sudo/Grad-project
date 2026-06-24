@@ -49,14 +49,22 @@
           }
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-font",
+      "expo-secure-store",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to record audio for voice logging."
+        }
+      ],
+      "expo-audio",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
-    "extra": {
-      "EXPO_PUBLIC_API_URL": "http://192.168.100.4:5000"
-    }
+    "extra": {}
   }
 }

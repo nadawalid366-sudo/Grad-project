@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchUserSubscriptions, getUserByEmail, type UserSubscription } from '../services/api';
 
 type DetailSection = 'personal-information' | 'medical-history' | 'allergies';
@@ -96,7 +97,18 @@ export default function ProfileDetailScreen() {
     fetchUserSubscriptions(userEmail)
       .then((response) => {
         if (!active) return;
-        setSubscriptions(Array.isArray(response.subscriptions) ? response.subscriptions : []);
+        const all = Array.isArray(response.subscriptions)
+          ? response.subscriptions
+          : [];
+        // Keep only one entry per professional (guards against legacy duplicates).
+        const seen = new Set<string>();
+        const unique = all.filter((sub) => {
+          const key = String(sub.professionalId || sub.id || sub.professionalTitle);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        setSubscriptions(unique);
       })
       .catch((error) => {
         console.log('Failed to load subscriptions:', error);

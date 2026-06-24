@@ -1,8 +1,8 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
 import {
+    ActivityIndicator,
     Animated,
     Modal,
     SafeAreaView,
@@ -11,37 +11,76 @@ import {
     TextInput,
     TouchableOpacity,
     useWindowDimensions,
-    View
-} from 'react-native';
-import { fetchDashboardStats, fetchPatientDashboard, savePatientLog } from '../../services/api';
+    View,
+} from "react-native";
+import {
+    fetchDashboardStats,
+    fetchPatientDashboard,
+    savePatientLog,
+    savePatientMetrics,
+} from "../../services/api";
+import { useBlockBack } from "../../hooks/use-block-back";
+import { useVoiceTranscription } from "../../hooks/use-voice-transcription";
 
-type SpeechEventName = 'start' | 'result' | 'error' | 'end';
+type WaterUnit = "cups" | "litres";
 
-type SpeechModuleLike = {
-  requestPermissionsAsync: () => Promise<{ granted: boolean }>;
-  start: (options: {
-    lang: string;
-    interimResults: boolean;
-    continuous: boolean;
-    maxAlternatives: number;
-    addsPunctuation: boolean;
-  }) => void;
-  stop: () => void;
+interface HealthMetrics {
+  calories: { current: number; goal: number };
+  sleep: { bedtime: string; wakeTime: string };
+  water: { amount: number; unit: WaterUnit; goal: number };
+}
+
+const DEFAULT_HEALTH_METRICS: HealthMetrics = {
+  calories: { current: 0, goal: 2000 },
+  sleep: { bedtime: "23:00", wakeTime: "07:00" },
+  water: { amount: 0, unit: "cups", goal: 8 },
 };
 
-let ExpoSpeechRecognitionModule: SpeechModuleLike | null = null;
-let useSpeechRecognitionEvent: (
-  eventName: SpeechEventName,
-  listener: (event: any) => void
-) => void = () => {};
+// Format a "HH:MM" 24h string as a 12h label, e.g. "23:00" -> "11:00 PM".
+const formatTime12 = (time: string) => {
+  const [hRaw, mRaw] = (time || "").split(":");
+  const h = Number(hRaw);
+  const m = Number(mRaw);
+  if (Number.isNaN(h) || Number.isNaN(m)) {
+    return time || "--:--";
+  }
+  const period = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
+};
 
-try {
-  const speechRecognition = require('expo-speech-recognition');
-  ExpoSpeechRecognitionModule = speechRecognition.ExpoSpeechRecognitionModule ?? null;
-  useSpeechRecognitionEvent = speechRecognition.useSpeechRecognitionEvent ?? (() => {});
-} catch {
-  ExpoSpeechRecognitionModule = null;
-}
+// Hours slept between bedtime and wake time, wrapping past midnight.
+const computeSleepHours = (bedtime: string, wakeTime: string) => {
+  const [bh, bm] = (bedtime || "").split(":").map(Number);
+  const [wh, wm] = (wakeTime || "").split(":").map(Number);
+  if ([bh, bm, wh, wm].some((n) => Number.isNaN(n))) {
+    return 0;
+  }
+  let mins = wh * 60 + wm - (bh * 60 + bm);
+  if (mins <= 0) mins += 24 * 60;
+  return Math.round((mins / 60) * 10) / 10;
+};
+
+// Voice logging records audio with expo-audio (works in Expo Go) and sends it
+// to the local Whisper speech-to-text service — see useVoiceTranscription.
+
+type VoiceCategory = "meal" | "exercise" | "vitals" | "medication" | "symptom";
+
+const VOICE_CATEGORIES: { id: VoiceCategory; label: string; color: string }[] = [
+  { id: "meal", label: "Meal", color: "#F59E0B" },
+  { id: "exercise", label: "Exercise", color: "#3B82F6" },
+  { id: "vitals", label: "Vitals", color: "#EF4444" },
+  { id: "medication", label: "Medication", color: "#EC4899" },
+  { id: "symptom", label: "Symptom", color: "#8B5CF6" },
+];
+
+const VOICE_CATEGORY_LABELS: Record<VoiceCategory, string> = {
+  meal: "Log Meal",
+  exercise: "Log Exercise",
+  vitals: "Log Vitals",
+  medication: "Log Medication",
+  symptom: "Log Symptom",
+};
 
 interface MetricCard {
   id: string;
@@ -78,38 +117,66 @@ interface QuickLogEntry {
 }
 
 export default function DashboardHome() {
-  const route = useRoute();
+  const params = useLocalSearchParams<{ fullName?: string; age?: string; height?: string; weight?: string; email?: string }>();
   const router = useRouter();
+  // Dashboard is a root screen — block the hardware back button.
+  useBlockBack();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
-  const [userName, setUserName] = useState('User');
+  const [userName, setUserName] = useState("User");
   const [userData, setUserData] = useState<any>(null);
   const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState(false);
-  const [voiceAssistantScreen, setVoiceAssistantScreen] = useState<'listening' | 'confirmation'>('listening');
-  const [selectedLogType, setSelectedLogType] = useState<string>('');
-  const [voiceTranscript, setVoiceTranscript] = useState('');
-  const [isRecognizing, setIsRecognizing] = useState(false);
+  const [voiceAssistantScreen, setVoiceAssistantScreen] = useState<
+    "listening" | "confirmation"
+  >("listening");
+  const [selectedLogType, setSelectedLogType] = useState<string>("");
+  const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [voiceLogCategory, setVoiceLogCategory] =
+    useState<VoiceCategory>("meal");
+  const [isSavingVoiceLog, setIsSavingVoiceLog] = useState(false);
   const [isQuickLogModalOpen, setIsQuickLogModalOpen] = useState(false);
-  const [quickLogType, setQuickLogType] = useState('');
-  const [quickLogValue, setQuickLogValue] = useState('');
-  const [quickLogNote, setQuickLogNote] = useState('');
+  const [quickLogType, setQuickLogType] = useState("");
+  const [quickLogValue, setQuickLogValue] = useState("");
+  const [quickLogNote, setQuickLogNote] = useState("");
   const [quickLogEntries, setQuickLogEntries] = useState<QuickLogEntry[]>([]);
   const [dashboardMetrics, setDashboardMetrics] = useState<MetricCard[]>([]);
-  const [dashboardActivities, setDashboardActivities] = useState<ActivityItem[]>([]);
-  const [dashboardQuickActions, setDashboardQuickActions] = useState<QuickAction[]>([]);
+  const [dashboardActivities, setDashboardActivities] = useState<
+    ActivityItem[]
+  >([]);
+  const [dashboardQuickActions, setDashboardQuickActions] = useState<
+    QuickAction[]
+  >([]);
+  const [healthMetrics, setHealthMetrics] = useState<HealthMetrics>(
+    DEFAULT_HEALTH_METRICS,
+  );
+  const [editMetric, setEditMetric] = useState<
+    null | "calories" | "sleep" | "water"
+  >(null);
+  const [draftCalories, setDraftCalories] = useState("");
+  const [draftBedtime, setDraftBedtime] = useState("");
+  const [draftWakeTime, setDraftWakeTime] = useState("");
+  const [draftWaterAmount, setDraftWaterAmount] = useState("");
+  const [draftWaterUnit, setDraftWaterUnit] = useState<WaterUnit>("cups");
   const pulseAnim = useRef(new Animated.Value(0)).current;
+  const {
+    isRecording,
+    isTranscribing,
+    error: voiceError,
+    start: startVoiceRecording,
+    stopAndTranscribe,
+    cancel: cancelVoiceRecording,
+  } = useVoiceTranscription();
 
   useEffect(() => {
-    const params = route.params as any;
-    const name = params?.fullName || params?.userName || 'User';
+    const name = params.fullName || "User";
     setUserName(name);
     setUserData({
-      fullName: params?.fullName || 'User Name',
-      age: params?.age || '',
-      height: params?.height || '',
-      weight: params?.weight || '',
-      email: params?.email || 'user@example.com'
+      fullName: params.fullName || "User Name",
+      age: params.age || "",
+      height: params.height || "",
+      weight: params.weight || "",
+      email: params.email || "user@example.com",
     });
-  }, [route.params]);
+  }, [params.fullName, params.age, params.height, params.weight, params.email]);
 
   useEffect(() => {
     const email = userData?.email;
@@ -125,59 +192,88 @@ export default function DashboardHome() {
       .then(([response, latestLogs]) => {
         if (!active) return;
 
-        const mappedMetrics: MetricCard[] = (response.metrics || []).map((metric: Record<string, any>, index: number) => ({
-          id: String(metric.id || index + 1),
-          title: String(metric.title || 'Metric'),
-          current: Number(metric.current ?? metric.value ?? 0),
-          goal: Number(metric.goal ?? 100),
-          unit: String(metric.unit || ''),
-          icon: String(metric.icon || 'chart-bar'),
-          color: String(metric.color || '#3B82F6'),
-          backgroundColor: String(metric.backgroundColor || '#DBEAFE'),
-        }));
+        const mappedMetrics: MetricCard[] = (response.metrics || []).map(
+          (metric: Record<string, any>, index: number) => ({
+            id: String(metric.id || index + 1),
+            title: String(metric.title || "Metric"),
+            current: Number(metric.current ?? metric.value ?? 0),
+            goal: Number(metric.goal ?? 100),
+            unit: String(metric.unit || ""),
+            icon: String(metric.icon || "chart-bar"),
+            color: String(metric.color || "#3B82F6"),
+            backgroundColor: String(metric.backgroundColor || "#DBEAFE"),
+          }),
+        );
 
-        const mappedQuickActions: QuickAction[] = (response.quickActions || []).map((action: Record<string, any>, index: number) => ({
+        const mappedQuickActions: QuickAction[] = (
+          response.quickActions || []
+        ).map((action: Record<string, any>, index: number) => ({
           id: String(action.id || index + 1),
-          label: String(action.label || 'Action'),
-          icon: String(action.icon || 'circle'),
-          color: String(action.color || '#3B82F6'),
+          label: String(action.label || "Action"),
+          icon: String(action.icon || "circle"),
+          color: String(action.color || "#3B82F6"),
         }));
 
         setDashboardMetrics(mappedMetrics);
         setDashboardQuickActions(mappedQuickActions);
 
-        const mappedActivities: ActivityItem[] = (latestLogs || []).map((log: any, index: number) => ({
-          id: log.id || log._id || String(index + 1),
-          title: log.title || log.subtitle || log.note || 'Health log',
-          timeAgo: log.timestamp || 'Just now',
-          icon:
-            log.type === 'meal'
-              ? 'food-fork-drink'
-              : log.type === 'exercise'
-                ? 'walk'
-                : log.type === 'medication'
-                  ? 'pill'
-                  : 'heart-pulse',
-          color:
-            log.type === 'meal'
-              ? '#F59E0B'
-              : log.type === 'exercise'
-                ? '#3B82F6'
-                : log.type === 'medication'
-                  ? '#EC4899'
-                  : '#EF4444',
-        }));
+        if (response.healthMetrics) {
+          const hm = response.healthMetrics;
+          setHealthMetrics({
+            calories: {
+              current: Number(hm.calories?.current ?? 0),
+              goal: Number(hm.calories?.goal ?? 2000),
+            },
+            sleep: {
+              bedtime: String(hm.sleep?.bedtime ?? "23:00"),
+              wakeTime: String(hm.sleep?.wakeTime ?? "07:00"),
+            },
+            water: {
+              amount: Number(hm.water?.amount ?? 0),
+              unit: hm.water?.unit === "litres" ? "litres" : "cups",
+              goal: Number(hm.water?.goal ?? 8),
+            },
+          });
+        }
+
+        const mappedActivities: ActivityItem[] = (latestLogs || []).map(
+          (log: any, index: number) => ({
+            id: log.id || log._id || String(index + 1),
+            title: log.title || log.subtitle || log.note || "Health log",
+            timeAgo: log.timestamp || "Just now",
+            icon:
+              log.type === "meal"
+                ? "food-fork-drink"
+                : log.type === "exercise"
+                  ? "walk"
+                  : log.type === "medication"
+                    ? "pill"
+                    : "heart-pulse",
+            color:
+              log.type === "meal"
+                ? "#F59E0B"
+                : log.type === "exercise"
+                  ? "#3B82F6"
+                  : log.type === "medication"
+                    ? "#EC4899"
+                    : "#EF4444",
+          }),
+        );
 
         setDashboardActivities(
           mappedActivities.length > 0
             ? mappedActivities
-            : (response.recentActivities || []).map((item: Record<string, any>, index: number) => ({
-                id: String(item.id || index + 1),
-                title: String(item.title || 'Activity'),
-                timeAgo: String(item.timeAgo || 'Just now'),
-                icon: String(item.icon || 'heart-pulse') as ActivityItem['icon'],
-                color: String(item.color || '#EF4444'),
-              }))
+            : (response.recentActivities || []).map(
+                (item: Record<string, any>, index: number) => ({
+                  id: String(item.id || index + 1),
+                  title: String(item.title || "Activity"),
+                  timeAgo: String(item.timeAgo || "Just now"),
+                  icon: String(
+                    item.icon || "heart-pulse",
+                  ) as ActivityItem["icon"],
+                  color: String(item.color || "#EF4444"),
+                }),
+              ),
         );
 
         if (response.user?.fullName) {
@@ -185,7 +281,7 @@ export default function DashboardHome() {
         }
       })
       .catch((error) => {
-        console.log('Failed to load patient dashboard:', error);
+        console.log("Failed to load patient dashboard:", error);
       });
 
     return () => {
@@ -195,7 +291,7 @@ export default function DashboardHome() {
 
   // Pulsating animation
   useEffect(() => {
-    if (isVoiceAssistantOpen && voiceAssistantScreen === 'listening') {
+    if (isVoiceAssistantOpen && voiceAssistantScreen === "listening") {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -208,7 +304,7 @@ export default function DashboardHome() {
             duration: 1000,
             useNativeDriver: false,
           }),
-        ])
+        ]),
       ).start();
     }
   }, [isVoiceAssistantOpen, voiceAssistantScreen, pulseAnim]);
@@ -217,19 +313,65 @@ export default function DashboardHome() {
     const text = transcript.toLowerCase();
 
     const matches = {
-      meal: ['meal', 'breakfast', 'lunch', 'dinner', 'snack', 'ate', 'food', 'calories'],
-      medication: ['medication', 'medicine', 'pill', 'tablet', 'dose', 'insulin', 'metformin', 'drug'],
-      exercise: ['exercise', 'workout', 'walk', 'run', 'jog', 'gym', 'training', 'activity'],
-      vitals: ['blood pressure', 'bp', 'pulse', 'heart rate', 'glucose', 'sugar', 'temperature', 'oxygen'],
-      symptom: ['symptom', 'pain', 'headache', 'nausea', 'dizzy', 'fatigue', 'cough', 'fever'],
+      meal: [
+        "meal",
+        "breakfast",
+        "lunch",
+        "dinner",
+        "snack",
+        "ate",
+        "food",
+        "calories",
+      ],
+      medication: [
+        "medication",
+        "medicine",
+        "pill",
+        "tablet",
+        "dose",
+        "insulin",
+        "metformin",
+        "drug",
+      ],
+      exercise: [
+        "exercise",
+        "workout",
+        "walk",
+        "run",
+        "jog",
+        "gym",
+        "training",
+        "activity",
+      ],
+      vitals: [
+        "blood pressure",
+        "bp",
+        "pulse",
+        "heart rate",
+        "glucose",
+        "sugar",
+        "temperature",
+        "oxygen",
+      ],
+      symptom: [
+        "symptom",
+        "pain",
+        "headache",
+        "nausea",
+        "dizzy",
+        "fatigue",
+        "cough",
+        "fever",
+      ],
     };
 
-    const scoreCategory = (keywords: string[]) => keywords.reduce((score, keyword) => {
-      if (text.includes(keyword)) {
-        return score + 1;
-      }
-      return score;
-    }, 0);
+    const scoreCategory = (keywords: string[]) =>
+      keywords.reduce((score, keyword) => {
+        if (text.includes(keyword)) {
+          return score + 1;
+        }
+        return score;
+      }, 0);
 
     const scores = {
       meal: scoreCategory(matches.meal),
@@ -241,144 +383,135 @@ export default function DashboardHome() {
 
     const bestMatch = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
     if (!bestMatch || bestMatch[1] === 0) {
-      return 'General Health Log';
+      return "General Health Log";
     }
 
     switch (bestMatch[0]) {
-      case 'meal':
-        return 'Log Meal';
-      case 'medication':
-        return 'Log Medication';
-      case 'exercise':
-        return 'Log Exercise';
-      case 'vitals':
-        return 'Log Vitals';
-      case 'symptom':
-        return 'Log Symptom';
+      case "meal":
+        return "Log Meal";
+      case "medication":
+        return "Log Medication";
+      case "exercise":
+        return "Log Exercise";
+      case "vitals":
+        return "Log Vitals";
+      case "symptom":
+        return "Log Symptom";
       default:
-        return 'General Health Log';
+        return "General Health Log";
     }
   };
 
-  const handleVoiceResultFinal = (transcript: string) => {
-    const cleanTranscript = transcript.trim();
-    if (!cleanTranscript) {
-      return;
-    }
-
-    const detectedType = classifyVoiceLogType(cleanTranscript);
-    setVoiceTranscript(cleanTranscript);
-    setSelectedLogType(detectedType);
-    setVoiceAssistantScreen('confirmation');
-    setIsRecognizing(false);
-  };
-
-  useSpeechRecognitionEvent('start', () => {
-    setIsRecognizing(true);
-    setVoiceAssistantScreen('listening');
-  });
-
-  useSpeechRecognitionEvent('result', (event) => {
-    const transcript = event.results?.[0]?.transcript?.trim() || '';
-    if (!transcript) {
-      return;
-    }
-
-    setVoiceTranscript(transcript);
-    if (event.isFinal) {
-      handleVoiceResultFinal(transcript);
-    }
-  });
-
-  useSpeechRecognitionEvent('error', (event) => {
-    setIsRecognizing(false);
-    const fallbackType = classifyVoiceLogType(event?.message || '');
-    setSelectedLogType(fallbackType);
-    setVoiceAssistantScreen('confirmation');
-  });
-
-  useSpeechRecognitionEvent('end', () => {
-    setIsRecognizing(false);
-  });
-
-  const startVoiceRecognition = async () => {
-    if (!ExpoSpeechRecognitionModule) {
-      return;
-    }
-
-    const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-    if (!permission.granted) {
-      return;
-    }
-
-    ExpoSpeechRecognitionModule.start({
-      lang: 'en-US',
-      interimResults: true,
-      continuous: false,
-      maxAlternatives: 1,
-      addsPunctuation: true,
-    });
+  // Map the keyword-detected label ("Log Meal", etc.) to a category key, used
+  // only to pre-select the category on the confirmation screen.
+  const detectDefaultCategory = (transcript: string): VoiceCategory => {
+    const value = classifyVoiceLogType(transcript).toLowerCase();
+    if (value.includes("meal")) return "meal";
+    if (value.includes("exercise")) return "exercise";
+    if (value.includes("vitals")) return "vitals";
+    if (value.includes("medication")) return "medication";
+    return "symptom";
   };
 
   const handleOpenVoiceAssistant = () => {
     setIsVoiceAssistantOpen(true);
-    setVoiceAssistantScreen('listening');
-    setSelectedLogType('');
-    setVoiceTranscript('');
-    startVoiceRecognition().catch(() => {
-      setIsRecognizing(false);
-    });
+    setVoiceAssistantScreen("listening");
+    setSelectedLogType("");
+    setVoiceTranscript("");
+    startVoiceRecording().catch(() => {});
   };
 
   const handleCloseVoiceAssistant = () => {
-    ExpoSpeechRecognitionModule?.stop();
+    cancelVoiceRecording().catch(() => {});
     setIsVoiceAssistantOpen(false);
-    setVoiceAssistantScreen('listening');
-    setSelectedLogType('');
-    setVoiceTranscript('');
-    setIsRecognizing(false);
+    setVoiceAssistantScreen("listening");
+    setSelectedLogType("");
+    setVoiceTranscript("");
     pulseAnim.setValue(0);
   };
 
-  const handleListeningComplete = () => {
-    ExpoSpeechRecognitionModule?.stop();
-    if (!voiceTranscript.trim()) {
-      setSelectedLogType('General Health Log');
-      setVoiceAssistantScreen('confirmation');
+  const handleListeningComplete = async () => {
+    const transcript = await stopAndTranscribe();
+    const cleanTranscript = (transcript || "").trim();
+
+    if (!cleanTranscript) {
+      // Nothing recognized — show confirmation with a retry message.
+      setVoiceTranscript("");
+      setVoiceAssistantScreen("confirmation");
       return;
     }
-    handleVoiceResultFinal(voiceTranscript);
+
+    // Pre-select the auto-detected category; the user picks/confirms next.
+    setVoiceTranscript(cleanTranscript);
+    setVoiceLogCategory(detectDefaultCategory(cleanTranscript));
+    setVoiceAssistantScreen("confirmation");
+  };
+
+  const handleSaveVoiceLog = async () => {
+    const cleanTranscript = voiceTranscript.trim();
+    if (!userData?.email || !cleanTranscript) {
+      handleCloseVoiceAssistant();
+      return;
+    }
+
+    setIsSavingVoiceLog(true);
+
+    const newEntry: QuickLogEntry = {
+      id: Date.now().toString(),
+      type: VOICE_CATEGORY_LABELS[voiceLogCategory],
+      value: cleanTranscript,
+      note: "",
+      timestamp: new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+
+    try {
+      await savePatientLog(userData.email, {
+        type: voiceLogCategory,
+        title: cleanTranscript,
+        subtitle: cleanTranscript,
+        note: "",
+      });
+      setQuickLogEntries((prev) => [newEntry, ...prev]);
+      handleCloseVoiceAssistant();
+    } catch (error) {
+      console.log("Failed to save voice log:", error);
+    } finally {
+      setIsSavingVoiceLog(false);
+    }
   };
 
   const getQuickLogValuePlaceholder = (type: string) => {
     switch (type) {
-      case 'Log Meal':
-        return 'Meal name (e.g. Grilled chicken + rice)';
-      case 'Log Exercise':
-        return 'Exercise and duration (e.g. Walking 30 min)';
-      case 'Log Vitals':
-        return 'Vital reading (e.g. BP 120/80 or glucose 105)';
-      case 'Log Medication':
-        return 'Medication name and dose (e.g. Metformin 500mg)';
-      case 'Log Symptom':
-        return 'Symptom (e.g. Headache, mild)';
+      case "Log Meal":
+        return "Meal name (e.g. Grilled chicken + rice)";
+      case "Log Exercise":
+        return "Exercise and duration (e.g. Walking 30 min)";
+      case "Log Vitals":
+        return "Vital reading (e.g. BP 120/80 or glucose 105)";
+      case "Log Medication":
+        return "Medication name and dose (e.g. Metformin 500mg)";
+      case "Log Symptom":
+        return "Symptom (e.g. Headache, mild)";
       default:
-        return 'Enter details';
+        return "Enter details";
     }
   };
 
   const handleOpenQuickLog = (type: string) => {
     setQuickLogType(type);
-    setQuickLogValue('');
-    setQuickLogNote('');
+    setQuickLogValue("");
+    setQuickLogNote("");
     setIsQuickLogModalOpen(true);
   };
 
   const handleCloseQuickLog = () => {
     setIsQuickLogModalOpen(false);
-    setQuickLogType('');
-    setQuickLogValue('');
-    setQuickLogNote('');
+    setQuickLogType("");
+    setQuickLogValue("");
+    setQuickLogNote("");
   };
 
   const handleSaveQuickLog = () => {
@@ -388,12 +521,12 @@ export default function DashboardHome() {
 
     const normalizedLogType = (() => {
       const value = quickLogType.toLowerCase();
-      if (value.includes('meal')) return 'meal';
-      if (value.includes('exercise')) return 'exercise';
-      if (value.includes('vitals')) return 'vitals';
-      if (value.includes('medication')) return 'medication';
-      if (value.includes('symptom')) return 'symptom';
-      return 'symptom';
+      if (value.includes("meal")) return "meal";
+      if (value.includes("exercise")) return "exercise";
+      if (value.includes("vitals")) return "vitals";
+      if (value.includes("medication")) return "medication";
+      if (value.includes("symptom")) return "symptom";
+      return "symptom";
     })();
 
     const newEntry: QuickLogEntry = {
@@ -401,9 +534,9 @@ export default function DashboardHome() {
       type: quickLogType,
       value: quickLogValue.trim(),
       note: quickLogNote.trim(),
-      timestamp: new Date().toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
+      timestamp: new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
       }),
     };
 
@@ -414,82 +547,122 @@ export default function DashboardHome() {
         title: quickLogValue.trim(),
         subtitle: quickLogNote.trim() || quickLogValue.trim(),
         note: quickLogNote.trim(),
-      }).catch((error) => console.log('Failed to save quick log:', error));
+      }).catch((error) => console.log("Failed to save quick log:", error));
     }
     handleCloseQuickLog();
   };
 
-  const metricCards: MetricCard[] = dashboardMetrics.length > 0 ? dashboardMetrics : [
-    {
-      id: '1',
-      title: "Today's Calories",
-      current: 1420,
-      goal: 2000,
-      unit: 'kcal',
-      icon: 'flame',
-      color: '#10B981',
-      backgroundColor: '#DCFCE7',
-    },
-    {
-      id: '2',
-      title: 'Activity Minutes',
-      current: 32,
-      goal: 60,
-      unit: 'min',
-      icon: 'run',
-      color: '#3B82F6',
-      backgroundColor: '#DBEAFE',
-    },
-    {
-      id: '3',
-      title: 'Medication',
-      current: 75,
-      goal: 100,
-      unit: '%',
-      icon: 'pill',
-      color: '#EC4899',
-      backgroundColor: '#FCE7F3',
-    },
-  ];
+  const persistHealthMetrics = (next: HealthMetrics) => {
+    setHealthMetrics(next);
+    if (userData?.email) {
+      savePatientMetrics(userData.email, next).catch((error) =>
+        console.log("Failed to save health metrics:", error),
+      );
+    }
+  };
 
-  const recentActivities: ActivityItem[] = dashboardActivities.length > 0 ? dashboardActivities : [
-    {
-      id: '1',
-      title: 'Logged breakfast - Scrambled eggs',
-      timeAgo: '2h ago',
-      icon: 'food-fork-drink',
-      color: '#F59E0B',
-    },
-    {
-      id: '2',
-      title: 'Took Metformin 500mg',
-      timeAgo: '2h ago',
-      icon: 'pill',
-      color: '#EC4899',
-    },
-    {
-      id: '3',
-      title: 'Recorded blood pressure',
-      timeAgo: '4h ago',
-      icon: 'heart-pulse',
-      color: '#EF4444',
-    },
-    {
-      id: '4',
-      title: 'Completed 30min walk',
-      timeAgo: 'Yesterday',
-      icon: 'walk',
-      color: '#3B82F6',
-    },
-  ];
+  const handleEditCalories = () => {
+    setDraftCalories(String(healthMetrics.calories.current));
+    setEditMetric("calories");
+  };
 
-  const quickActions: QuickAction[] = dashboardQuickActions.length > 0 ? dashboardQuickActions : [
-    { id: '1', label: 'Log Meal', icon: 'silverware-fork-knife', color: '#F59E0B' },
-    { id: '2', label: 'Log Exercise', icon: 'dumbbell', color: '#3B82F6' },
-    { id: '3', label: 'Log Vitals', icon: 'heart-pulse', color: '#EF4444' },
-    { id: '4', label: 'Log Symptom', icon: 'emoticon-sad-outline', color: '#8B5CF6' },
-    { id: '5', label: 'Log Medication', icon: 'pill', color: '#EC4899' },
-  ];
+  const handleEditSleep = () => {
+    setDraftBedtime(healthMetrics.sleep.bedtime);
+    setDraftWakeTime(healthMetrics.sleep.wakeTime);
+    setEditMetric("sleep");
+  };
+
+  const handleEditWater = () => {
+    setDraftWaterAmount(String(healthMetrics.water.amount));
+    setDraftWaterUnit(healthMetrics.water.unit);
+    setEditMetric("water");
+  };
+
+  const handleCloseEdit = () => setEditMetric(null);
+
+  const handleSaveCalories = () => {
+    const current = Math.max(0, Math.round(Number(draftCalories) || 0));
+    persistHealthMetrics({
+      ...healthMetrics,
+      calories: { ...healthMetrics.calories, current },
+    });
+    setEditMetric(null);
+  };
+
+  // Accept "H:MM" or "HH:MM" within valid 24h ranges; otherwise keep current.
+  const normalizeTime = (value: string, fallback: string) => {
+    const match = (value || "").trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return fallback;
+    const h = Number(match[1]);
+    const m = Number(match[2]);
+    if (h > 23 || m > 59) return fallback;
+    return `${String(h).padStart(2, "0")}:${match[2]}`;
+  };
+
+  const handleSaveSleep = () => {
+    persistHealthMetrics({
+      ...healthMetrics,
+      sleep: {
+        bedtime: normalizeTime(draftBedtime, healthMetrics.sleep.bedtime),
+        wakeTime: normalizeTime(draftWakeTime, healthMetrics.sleep.wakeTime),
+      },
+    });
+    setEditMetric(null);
+  };
+
+  const handleSaveWater = () => {
+    const amount = Math.max(0, Number(draftWaterAmount) || 0);
+    const goal = draftWaterUnit === "litres" ? 2 : 8;
+    persistHealthMetrics({
+      ...healthMetrics,
+      water: { amount, unit: draftWaterUnit, goal },
+    });
+    setEditMetric(null);
+  };
+
+  const medicationCard: MetricCard = dashboardMetrics.find(
+    (m) => m.id === "medication",
+  ) || {
+    id: "medication",
+    title: "Medication",
+    current: 0,
+    goal: 100,
+    unit: "%",
+    icon: "pill",
+    color: "#EC4899",
+    backgroundColor: "#FCE7F3",
+  };
+  const recentActivities: ActivityItem[] = dashboardActivities;
+  const quickActions: QuickAction[] =
+    dashboardQuickActions.length > 0
+      ? dashboardQuickActions
+      : [
+          {
+            id: "1",
+            label: "Log Meal",
+            icon: "silverware-fork-knife",
+            color: "#F59E0B",
+          },
+          {
+            id: "2",
+            label: "Log Exercise",
+            icon: "dumbbell",
+            color: "#3B82F6",
+          },
+          {
+            id: "3",
+            label: "Log Vitals",
+            icon: "heart-pulse",
+            color: "#EF4444",
+          },
+          {
+            id: "4",
+            label: "Log Symptom",
+            icon: "emoticon-sad-outline",
+            color: "#8B5CF6",
+          },
+          { id: "5", label: "Log Medication", icon: "pill", color: "#EC4899" },
+        ];
 
   const isCompact = screenHeight < 780;
   const isVeryCompact = screenHeight < 700;
@@ -504,15 +677,40 @@ export default function DashboardHome() {
     return (
       <View key={card.id} style={styles.metricCard}>
         <View style={styles.metricHeader}>
-          <View style={[styles.metricIcon, { backgroundColor: card.backgroundColor }]}>
-            <MaterialCommunityIcons name={card.icon as any} size={isCompact ? 18 : 20} color={card.color} />
+          <View
+            style={[
+              styles.metricIcon,
+              { backgroundColor: card.backgroundColor },
+            ]}
+          >
+            <MaterialCommunityIcons
+              name={card.icon as any}
+              size={isCompact ? 18 : 20}
+              color={card.color}
+            />
           </View>
-          <Text style={[styles.metricTitle, isCompact && styles.metricTitleCompact]} numberOfLines={1}>{card.title}</Text>
+          <Text
+            style={[styles.metricTitle, isCompact && styles.metricTitleCompact]}
+            numberOfLines={1}
+          >
+            {card.title}
+          </Text>
         </View>
-        
+
         <View style={styles.metricValue}>
-          <Text style={[styles.metricNumber, isCompact && styles.metricNumberCompact]}>{card.current}</Text>
-          <Text style={[styles.metricUnit, isCompact && styles.metricUnitCompact]}>/ {card.goal} {card.unit}</Text>
+          <Text
+            style={[
+              styles.metricNumber,
+              isCompact && styles.metricNumberCompact,
+            ]}
+          >
+            {card.current}
+          </Text>
+          <Text
+            style={[styles.metricUnit, isCompact && styles.metricUnitCompact]}
+          >
+            / {card.goal} {card.unit}
+          </Text>
         </View>
 
         <View style={styles.progressBarContainer}>
@@ -531,13 +729,182 @@ export default function DashboardHome() {
     );
   };
 
+  const renderCaloriesCard = () => {
+    const { current, goal } = healthMetrics.calories;
+    const displayProgress = Math.min((current / goal) * 100, 100);
+
+    return (
+      <TouchableOpacity
+        style={styles.metricCard}
+        activeOpacity={0.85}
+        onPress={handleEditCalories}
+      >
+        <View style={styles.metricHeader}>
+          <View style={[styles.metricIcon, { backgroundColor: "#DCFCE7" }]}>
+            <MaterialCommunityIcons
+              name="fire"
+              size={isCompact ? 18 : 20}
+              color="#10B981"
+            />
+          </View>
+          <Text
+            style={[styles.metricTitle, isCompact && styles.metricTitleCompact]}
+            numberOfLines={1}
+          >
+            Calories
+          </Text>
+          <MaterialCommunityIcons name="pencil" size={14} color="#9CA3AF" />
+        </View>
+
+        <View style={styles.metricValue}>
+          <Text
+            style={[
+              styles.metricNumber,
+              isCompact && styles.metricNumberCompact,
+            ]}
+          >
+            {current}
+          </Text>
+          <Text
+            style={[styles.metricUnit, isCompact && styles.metricUnitCompact]}
+          >
+            / {goal} kcal
+          </Text>
+        </View>
+
+        <View style={styles.progressBarContainer}>
+          <View
+            style={[
+              styles.progressBar,
+              { width: `${displayProgress}%`, backgroundColor: "#10B981" },
+            ]}
+          />
+        </View>
+        <Text style={styles.progressText}>{Math.round(displayProgress)}%</Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderSleepCard = () => {
+    const hours = computeSleepHours(
+      healthMetrics.sleep.bedtime,
+      healthMetrics.sleep.wakeTime,
+    );
+
+    return (
+      <TouchableOpacity
+        style={[styles.metricCard, styles.bpMetricCard]}
+        activeOpacity={0.85}
+        onPress={handleEditSleep}
+      >
+        <View style={styles.metricHeader}>
+          <View style={[styles.metricIcon, { backgroundColor: "#EDE9FE" }]}>
+            <MaterialCommunityIcons
+              name="sleep"
+              size={isCompact ? 18 : 20}
+              color="#8B5CF6"
+            />
+          </View>
+          <Text
+            style={[styles.metricTitle, isCompact && styles.metricTitleCompact]}
+            numberOfLines={1}
+          >
+            Sleep Schedule
+          </Text>
+          <MaterialCommunityIcons name="pencil" size={14} color="#9CA3AF" />
+        </View>
+
+        <View style={styles.bpMetricValueRow}>
+          <Text
+            style={[
+              styles.bpMetricValue,
+              isCompact && styles.bpMetricValueCompact,
+            ]}
+          >
+            {hours}
+          </Text>
+          <Text style={styles.bpMetricUnit}>hrs</Text>
+        </View>
+
+        <Text style={styles.sleepScheduleText} numberOfLines={1}>
+          {formatTime12(healthMetrics.sleep.bedtime)} →{" "}
+          {formatTime12(healthMetrics.sleep.wakeTime)}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderWaterCard = () => {
+    const { amount, unit, goal } = healthMetrics.water;
+    const displayProgress = Math.min((amount / goal) * 100, 100);
+
+    return (
+      <TouchableOpacity
+        style={styles.metricCard}
+        activeOpacity={0.85}
+        onPress={handleEditWater}
+      >
+        <View style={styles.metricHeader}>
+          <View style={[styles.metricIcon, { backgroundColor: "#E0F2FE" }]}>
+            <MaterialCommunityIcons
+              name="cup-water"
+              size={isCompact ? 18 : 20}
+              color="#0EA5E9"
+            />
+          </View>
+          <Text
+            style={[styles.metricTitle, isCompact && styles.metricTitleCompact]}
+            numberOfLines={1}
+          >
+            Water Intake
+          </Text>
+          <MaterialCommunityIcons name="pencil" size={14} color="#9CA3AF" />
+        </View>
+
+        <View style={styles.metricValue}>
+          <Text
+            style={[
+              styles.metricNumber,
+              isCompact && styles.metricNumberCompact,
+            ]}
+          >
+            {amount}
+          </Text>
+          <Text
+            style={[styles.metricUnit, isCompact && styles.metricUnitCompact]}
+          >
+            / {goal} {unit}
+          </Text>
+        </View>
+
+        <View style={styles.progressBarContainer}>
+          <View
+            style={[
+              styles.progressBar,
+              { width: `${displayProgress}%`, backgroundColor: "#0EA5E9" },
+            ]}
+          />
+        </View>
+        <Text style={styles.progressText}>{Math.round(displayProgress)}%</Text>
+      </TouchableOpacity>
+    );
+  };
+
   const renderActivityItem = (item: ActivityItem) => (
     <View key={item.id} style={styles.activityItem}>
-      <View style={[styles.activityIcon, { backgroundColor: item.color + '20' }]}>
-        <MaterialCommunityIcons name={item.icon as any} size={16} color={item.color} />
+      <View
+        style={[styles.activityIcon, { backgroundColor: item.color + "20" }]}
+      >
+        <MaterialCommunityIcons
+          name={item.icon as any}
+          size={16}
+          color={item.color}
+        />
       </View>
       <View style={styles.activityContent}>
-        <Text style={styles.activityTitle} numberOfLines={2}>{item.title}</Text>
+        <Text style={styles.activityTitle} numberOfLines={2}>
+          {item.title}
+        </Text>
         <Text style={styles.activityTime}>{item.timeAgo}</Text>
       </View>
     </View>
@@ -550,10 +917,18 @@ export default function DashboardHome() {
       onPress={() => handleOpenQuickLog(action.label)}
       activeOpacity={0.8}
     >
-      <View style={[styles.actionIcon, { backgroundColor: action.color + '20' }]}>
-        <MaterialCommunityIcons name={action.icon as any} size={16} color={action.color} />
+      <View
+        style={[styles.actionIcon, { backgroundColor: action.color + "20" }]}
+      >
+        <MaterialCommunityIcons
+          name={action.icon as any}
+          size={16}
+          color={action.color}
+        />
       </View>
-      <Text style={styles.actionLabel} numberOfLines={1}>{action.label}</Text>
+      <Text style={styles.actionLabel} numberOfLines={1}>
+        {action.label}
+      </Text>
     </TouchableOpacity>
   );
 
@@ -562,43 +937,38 @@ export default function DashboardHome() {
       <View style={styles.pageContent}>
         <View style={[styles.header, isCompact && styles.headerCompact]}>
           <View style={styles.headerTextWrap}>
-            <Text style={[styles.greeting, isNarrow && styles.greetingNarrow]} numberOfLines={1}>Good morning, {userName}! 👋</Text>
-            <Text style={styles.subgreeting} numberOfLines={1}>Here's your health overview for today</Text>
+            <Text
+              style={[styles.greeting, isNarrow && styles.greetingNarrow]}
+              numberOfLines={1}
+            >
+              Good morning, {userName}! 👋
+            </Text>
+            <Text style={styles.subgreeting} numberOfLines={1}>
+              Here&apos;s your health overview for today
+            </Text>
           </View>
-          <TouchableOpacity style={styles.settingsButton}>
-            <Ionicons name="settings-outline" size={22} color="#6B7280" />
-          </TouchableOpacity>
         </View>
 
         <View style={styles.mainGrid}>
           <View style={styles.mainGridRow}>
-            {renderMetricCard(metricCards[0])}
-            {renderMetricCard(metricCards[1])}
+            {renderCaloriesCard()}
+            {renderSleepCard()}
           </View>
 
           <View style={styles.mainGridRow}>
-            {renderMetricCard(metricCards[2])}
-            <View style={[styles.metricCard, styles.bpMetricCard]}>
-              <View style={styles.metricHeader}>
-                <View style={[styles.metricIcon, { backgroundColor: '#FEE2E2' }]}>
-                  <MaterialCommunityIcons name="heart-pulse" size={isCompact ? 18 : 20} color="#EF4444" />
-                </View>
-                <Text style={[styles.metricTitle, isCompact && styles.metricTitleCompact]} numberOfLines={1}>Blood Pressure</Text>
-              </View>
-
-              <View style={styles.bpMetricValueRow}>
-                <Text style={[styles.bpMetricValue, isCompact && styles.bpMetricValueCompact]}>128/82</Text>
-                <Text style={styles.bpMetricUnit}>mmHg</Text>
-              </View>
-
-              <Text style={styles.bpStatus}>Healthy</Text>
-            </View>
+            {renderMetricCard(medicationCard)}
+            {renderWaterCard()}
           </View>
         </View>
 
         <View style={styles.horizontalSection}>
           <Text style={styles.sectionTitle}>Recent Activity</Text>
-          <View style={[styles.recentActivityList, isCompact && styles.recentActivityListCompact]}>
+          <View
+            style={[
+              styles.recentActivityList,
+              isCompact && styles.recentActivityListCompact,
+            ]}
+          >
             {visibleActivities.map(renderActivityItem)}
           </View>
         </View>
@@ -610,18 +980,19 @@ export default function DashboardHome() {
           </View>
           {quickLogEntries.length > 0 && (
             <View style={styles.latestQuickLogCard}>
-              <Text style={styles.latestQuickLogTitle}>Latest: {quickLogEntries[0].type}</Text>
-              <Text style={styles.latestQuickLogValue} numberOfLines={1}>{quickLogEntries[0].value}</Text>
+              <Text style={styles.latestQuickLogTitle}>
+                Latest: {quickLogEntries[0].type}
+              </Text>
+              <Text style={styles.latestQuickLogValue} numberOfLines={1}>
+                {quickLogEntries[0].value}
+              </Text>
             </View>
           )}
         </View>
       </View>
 
       {/* Floating Action Button */}
-      <TouchableOpacity 
-        style={styles.fab}
-        onPress={handleOpenVoiceAssistant}
-      >
+      <TouchableOpacity style={styles.fab} onPress={handleOpenVoiceAssistant}>
         <MaterialCommunityIcons name="microphone" size={28} color="#FFFFFF" />
       </TouchableOpacity>
 
@@ -674,25 +1045,177 @@ export default function DashboardHome() {
         </View>
       </Modal>
 
+      {/* Edit Health Metric Modal */}
+      <Modal
+        visible={editMetric !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCloseEdit}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.quickLogModalContent}>
+            <View style={styles.quickLogHeader}>
+              <Text style={styles.quickLogTitle}>
+                {editMetric === "calories"
+                  ? "Edit Calories"
+                  : editMetric === "sleep"
+                    ? "Edit Sleep Schedule"
+                    : "Edit Water Intake"}
+              </Text>
+              <TouchableOpacity onPress={handleCloseEdit}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            {editMetric === "calories" && (
+              <>
+                <Text style={styles.quickLogLabel}>Calories consumed (kcal)</Text>
+                <TextInput
+                  style={styles.quickLogInput}
+                  placeholder="e.g. 1500"
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="numeric"
+                  value={draftCalories}
+                  onChangeText={setDraftCalories}
+                />
+                <TouchableOpacity
+                  style={styles.quickLogSaveButton}
+                  onPress={handleSaveCalories}
+                >
+                  <Text style={styles.quickLogSaveButtonText}>Save</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {editMetric === "sleep" && (
+              <>
+                <Text style={styles.quickLogLabel}>Bedtime (24h, HH:MM)</Text>
+                <TextInput
+                  style={styles.quickLogInput}
+                  placeholder="23:00"
+                  placeholderTextColor="#9CA3AF"
+                  value={draftBedtime}
+                  onChangeText={setDraftBedtime}
+                />
+                <Text style={styles.quickLogLabel}>
+                  Wake-up time (24h, HH:MM)
+                </Text>
+                <TextInput
+                  style={styles.quickLogInput}
+                  placeholder="07:00"
+                  placeholderTextColor="#9CA3AF"
+                  value={draftWakeTime}
+                  onChangeText={setDraftWakeTime}
+                />
+                <TouchableOpacity
+                  style={styles.quickLogSaveButton}
+                  onPress={handleSaveSleep}
+                >
+                  <Text style={styles.quickLogSaveButtonText}>Save</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {editMetric === "water" && (
+              <>
+                <Text style={styles.quickLogLabel}>Amount</Text>
+                <TextInput
+                  style={styles.quickLogInput}
+                  placeholder={draftWaterUnit === "litres" ? "e.g. 1.5" : "e.g. 6"}
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="numeric"
+                  value={draftWaterAmount}
+                  onChangeText={setDraftWaterAmount}
+                />
+                <Text style={styles.quickLogLabel}>Unit</Text>
+                <View style={styles.unitToggleRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.unitToggleButton,
+                      draftWaterUnit === "cups" && styles.unitToggleButtonActive,
+                    ]}
+                    onPress={() => setDraftWaterUnit("cups")}
+                  >
+                    <Text
+                      style={[
+                        styles.unitToggleText,
+                        draftWaterUnit === "cups" &&
+                          styles.unitToggleTextActive,
+                      ]}
+                    >
+                      Cups
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.unitToggleButton,
+                      draftWaterUnit === "litres" &&
+                        styles.unitToggleButtonActive,
+                    ]}
+                    onPress={() => setDraftWaterUnit("litres")}
+                  >
+                    <Text
+                      style={[
+                        styles.unitToggleText,
+                        draftWaterUnit === "litres" &&
+                          styles.unitToggleTextActive,
+                      ]}
+                    >
+                      Litres
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  style={styles.quickLogSaveButton}
+                  onPress={handleSaveWater}
+                >
+                  <Text style={styles.quickLogSaveButtonText}>Save</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Bottom Navigation Bar */}
       <View style={styles.bottomNavigation}>
         <TouchableOpacity style={styles.navItem}>
           <Ionicons name="home" size={24} color="#3B82F6" />
-          <Text style={[styles.navLabel, { color: '#3B82F6' }]}>Home</Text>
+          <Text style={[styles.navLabel, { color: "#3B82F6" }]}>Home</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push({ pathname: '/(tabs)/logs', params: userData })}>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/logs", params: userData })
+          }
+        >
           <Ionicons name="document-text-outline" size={24} color="#9CA3AF" />
           <Text style={styles.navLabel}>Logs</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push({ pathname: '/(tabs)/plans', params: userData })}>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/plans", params: userData })
+          }
+        >
           <Ionicons name="calendar-outline" size={24} color="#9CA3AF" />
           <Text style={styles.navLabel}>Plans</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push({ pathname: '/(tabs)/messages', params: userData })}>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/messages", params: userData })
+          }
+        >
           <Ionicons name="chatbubble-outline" size={24} color="#9CA3AF" />
           <Text style={styles.navLabel}>Messages</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push({ pathname: '/(tabs)/prof', params: userData })}>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() =>
+            router.push({ pathname: "/(tabs)/prof", params: userData })
+          }
+        >
           <Ionicons name="person-outline" size={24} color="#9CA3AF" />
           <Text style={styles.navLabel}>Profile</Text>
         </TouchableOpacity>
@@ -706,13 +1229,16 @@ export default function DashboardHome() {
         onRequestClose={handleCloseVoiceAssistant}
       >
         <View style={styles.modalOverlay}>
-          {voiceAssistantScreen === 'listening' ? (
+          {voiceAssistantScreen === "listening" ? (
             // Listening Screen
             <View style={styles.voiceModalContent}>
               <View style={styles.voiceModalHeader}>
                 <View>
                   <Text style={styles.voiceModalTitle}>Voice Assistant</Text>
-                  <Text style={styles.selectedTypeLabel}>Speak directly. Your log type will be detected automatically.</Text>
+                  <Text style={styles.selectedTypeLabel}>
+                    Speak directly. Your log type will be detected
+                    automatically.
+                  </Text>
                 </View>
                 <TouchableOpacity onPress={handleCloseVoiceAssistant}>
                   <Ionicons name="close" size={28} color="#6B7280" />
@@ -720,8 +1246,10 @@ export default function DashboardHome() {
               </View>
 
               <View style={styles.listeningContainer}>
-                <Text style={styles.listeningLabel}>Listening...</Text>
-                
+                <Text style={styles.listeningLabel}>
+                  {isTranscribing ? "Transcribing..." : "Listening..."}
+                </Text>
+
                 {/* Pulsating Waveform Circle */}
                 <View style={styles.pulseContainer}>
                   <Animated.View
@@ -744,18 +1272,38 @@ export default function DashboardHome() {
                     ]}
                   />
                   <View style={styles.microphoneCircle}>
-                    <MaterialCommunityIcons name="microphone" size={40} color="#FFFFFF" />
+                    {isTranscribing ? (
+                      <ActivityIndicator size="large" color="#FFFFFF" />
+                    ) : (
+                      <MaterialCommunityIcons
+                        name="microphone"
+                        size={40}
+                        color="#FFFFFF"
+                      />
+                    )}
                   </View>
                 </View>
 
-                <Text style={styles.instructionText}>Speak clearly into your device</Text>
+                <Text style={styles.instructionText}>
+                  {voiceError
+                    ? voiceError
+                    : isTranscribing
+                      ? "Converting your speech to text"
+                      : "Speak clearly, then tap Done"}
+                </Text>
               </View>
 
               <TouchableOpacity
-                style={styles.listeningButton}
+                style={[
+                  styles.listeningButton,
+                  (isTranscribing || !isRecording) && { opacity: 0.6 },
+                ]}
                 onPress={handleListeningComplete}
+                disabled={isTranscribing || !isRecording}
               >
-                <Text style={styles.listeningButtonText}>Done</Text>
+                <Text style={styles.listeningButtonText}>
+                  {isTranscribing ? "Please wait..." : "Done"}
+                </Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -768,20 +1316,76 @@ export default function DashboardHome() {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.confirmationDetails}>
-                <Text style={styles.detailLabel}>Logged:</Text>
-                <Text style={styles.detailValue}>{selectedLogType || 'General Health Log'}</Text>
-                <Text style={styles.detailSubtext}>Your entry has been recorded successfully</Text>
-              </View>
+              {voiceTranscript ? (
+                <>
+                  <View style={styles.confirmationDetails}>
+                    <Text style={styles.detailLabel}>You said:</Text>
+                    <Text style={styles.detailValue}>
+                      &quot;{voiceTranscript}&quot;
+                    </Text>
+                  </View>
 
-              <View style={styles.confirmActionRow}>
-                <TouchableOpacity
-                  style={styles.confirmButton}
-                  onPress={handleCloseVoiceAssistant}
-                >
-                  <Text style={styles.confirmButtonText}>Done</Text>
-                </TouchableOpacity>
-              </View>
+                  <Text style={styles.categoryPickerLabel}>Log as:</Text>
+                  <View style={styles.categoryPickerRow}>
+                    {VOICE_CATEGORIES.map((category) => {
+                      const isActive = voiceLogCategory === category.id;
+                      return (
+                        <TouchableOpacity
+                          key={category.id}
+                          onPress={() => setVoiceLogCategory(category.id)}
+                          style={[
+                            styles.categoryPickerChip,
+                            isActive && {
+                              backgroundColor: category.color,
+                              borderColor: category.color,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.categoryPickerChipText,
+                              isActive && styles.categoryPickerChipTextActive,
+                            ]}
+                          >
+                            {category.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  <View style={styles.confirmActionRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.confirmButton,
+                        isSavingVoiceLog && { opacity: 0.6 },
+                      ]}
+                      onPress={handleSaveVoiceLog}
+                      disabled={isSavingVoiceLog}
+                    >
+                      <Text style={styles.confirmButtonText}>
+                        {isSavingVoiceLog ? "Saving..." : "Save log"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.confirmationDetails}>
+                    <Text style={styles.detailSubtext}>
+                      No speech was detected. Please try again.
+                    </Text>
+                  </View>
+                  <View style={styles.confirmActionRow}>
+                    <TouchableOpacity
+                      style={styles.confirmButton}
+                      onPress={handleCloseVoiceAssistant}
+                    >
+                      <Text style={styles.confirmButtonText}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
             </View>
           )}
         </View>
@@ -793,8 +1397,8 @@ export default function DashboardHome() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
-    overflow: 'hidden',
+    backgroundColor: "#F9FAFB",
+    overflow: "hidden",
   },
   pageContent: {
     flex: 1,
@@ -804,12 +1408,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 14,
   },
   headerCompact: {
@@ -821,8 +1425,8 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 2,
   },
   greetingNarrow: {
@@ -830,13 +1434,13 @@ const styles = StyleSheet.create({
   },
   subgreeting: {
     fontSize: 12,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   settingsButton: {
     padding: 4,
   },
   metricRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   mainGrid: {
@@ -845,57 +1449,57 @@ const styles = StyleSheet.create({
   },
   mainGridRow: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 6,
   },
   metricCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 11,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 6,
     elevation: 2,
   },
   metricHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 8,
   },
   metricIcon: {
     width: 30,
     height: 30,
     borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 8,
   },
   metricTitle: {
     fontSize: 12,
-    color: '#6B7280',
+    color: "#6B7280",
     flex: 1,
   },
   metricTitleCompact: {
     fontSize: 11,
   },
   metricValue: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
+    flexDirection: "row",
+    alignItems: "baseline",
     marginBottom: 6,
   },
   metricNumber: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   metricNumberCompact: {
     fontSize: 18,
   },
   metricUnit: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
     marginLeft: 4,
   },
   metricUnitCompact: {
@@ -903,24 +1507,24 @@ const styles = StyleSheet.create({
   },
   progressBarContainer: {
     height: 6,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
     borderRadius: 4,
     marginBottom: 4,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   progressBar: {
-    height: '100%',
+    height: "100%",
     borderRadius: 4,
   },
   progressText: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   horizontalSection: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 10,
-    overflow: 'hidden',
+    overflow: "hidden",
     minHeight: 92,
   },
   recentActivityList: {
@@ -930,48 +1534,79 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   horizontalRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 6,
   },
   bpMetricCard: {
-    justifyContent: 'space-between',
+    justifyContent: "space-between",
   },
   bpMetricValueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
+    flexDirection: "row",
+    alignItems: "baseline",
     marginBottom: 4,
   },
   bpMetricValue: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   bpMetricValueCompact: {
     fontSize: 18,
   },
   bpMetricUnit: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
     marginLeft: 4,
   },
   bpStatus: {
     fontSize: 12,
-    color: '#10B981',
-    fontWeight: '600',
+    color: "#10B981",
+    fontWeight: "600",
+  },
+  sleepScheduleText: {
+    fontSize: 11,
+    color: "#6B7280",
+    fontWeight: "600",
+  },
+  unitToggleRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 12,
+  },
+  unitToggleButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+  },
+  unitToggleButtonActive: {
+    borderColor: "#3B82F6",
+    backgroundColor: "#DBEAFE",
+  },
+  unitToggleText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  unitToggleTextActive: {
+    color: "#1D4ED8",
   },
   sectionTitle: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 8,
   },
   activityList: {
     gap: 6,
   },
   activityItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
     borderRadius: 10,
     padding: 8,
   },
@@ -979,8 +1614,8 @@ const styles = StyleSheet.create({
     width: 30,
     height: 30,
     borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: 8,
   },
   activityContent: {
@@ -988,334 +1623,362 @@ const styles = StyleSheet.create({
   },
   activityTitle: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: "600",
+    color: "#111827",
     marginBottom: 1,
   },
   activityTime: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   quickActionsGrid: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 6,
-    justifyContent: 'space-between',
+    justifyContent: "space-between",
   },
   quickActionButton: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     borderRadius: 10,
     paddingVertical: 6,
     paddingHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   actionIcon: {
     width: 30,
     height: 30,
     borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 4,
   },
   actionLabel: {
     fontSize: 9,
-    fontWeight: '600',
-    color: '#111827',
-    textAlign: 'center',
+    fontWeight: "600",
+    color: "#111827",
+    textAlign: "center",
   },
   latestQuickLogCard: {
     marginTop: 6,
-    backgroundColor: '#ECFDF5',
+    backgroundColor: "#ECFDF5",
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#A7F3D0',
+    borderColor: "#A7F3D0",
     padding: 8,
   },
   latestQuickLogTitle: {
     fontSize: 10,
-    color: '#047857',
-    fontWeight: '600',
+    color: "#047857",
+    fontWeight: "600",
     marginBottom: 2,
   },
   latestQuickLogValue: {
     fontSize: 11,
-    color: '#065F46',
+    color: "#065F46",
   },
   fab: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 86,
     right: 14,
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#3B82F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
+    backgroundColor: "#3B82F6",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
   },
   bottomNavigation: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: "#E5E7EB",
     paddingBottom: 6,
   },
   navItem: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 10,
   },
   navLabel: {
     fontSize: 10,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
     marginTop: 2,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   // Voice Assistant Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: '#00000080',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#00000080",
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 20,
   },
   voiceModalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 24,
-    width: '100%',
+    width: "100%",
     maxWidth: 400,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 10,
   },
   voiceModalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 32,
   },
   voiceModalTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   selectedTypeLabel: {
     fontSize: 12,
-    color: '#6B7280',
+    color: "#6B7280",
     marginTop: 4,
   },
   listeningContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 32,
   },
   listeningLabel: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
+    fontWeight: "600",
+    color: "#111827",
     marginBottom: 24,
   },
   pulseContainer: {
-    position: 'relative',
+    position: "relative",
     width: 140,
     height: 140,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 24,
   },
   pulseRing: {
-    position: 'absolute',
+    position: "absolute",
     width: 120,
     height: 120,
     borderRadius: 60,
     borderWidth: 3,
-    borderColor: '#3B82F6',
+    borderColor: "#3B82F6",
   },
   microphoneCircle: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#3B82F6',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#3B82F6",
+    justifyContent: "center",
+    alignItems: "center",
     zIndex: 1,
   },
   instructionText: {
     fontSize: 14,
-    color: '#6B7280',
-    textAlign: 'center',
+    color: "#6B7280",
+    textAlign: "center",
   },
   liveTranscript: {
     marginTop: 12,
     padding: 10,
     borderRadius: 10,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
     fontSize: 13,
-    color: '#111827',
-    width: '100%',
-    textAlign: 'center',
+    color: "#111827",
+    width: "100%",
+    textAlign: "center",
   },
   listeningButton: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
     borderRadius: 12,
     paddingVertical: 14,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 16,
   },
   listeningButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
   confirmationHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 28,
   },
   confirmationTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   confirmationGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 16,
-    justifyContent: 'space-between',
+    justifyContent: "space-between",
   },
   confirmationTile: {
-    width: '48%',
-    backgroundColor: '#F9FAFB',
+    width: "48%",
+    backgroundColor: "#F9FAFB",
     borderRadius: 16,
     padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
   },
   tileIcon: {
     width: 60,
     height: 60,
     borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 12,
   },
   tileName: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#111827',
-    textAlign: 'center',
+    fontWeight: "600",
+    color: "#111827",
+    textAlign: "center",
   },
   confirmationDetails: {
-    alignItems: 'center',
+    alignItems: "center",
     marginVertical: 32,
     paddingVertical: 20,
     paddingHorizontal: 16,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     marginBottom: 24,
   },
   detailLabel: {
     fontSize: 12,
-    color: '#6B7280',
+    color: "#6B7280",
     marginBottom: 8,
   },
   detailValue: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 8,
   },
   detailSubtext: {
     fontSize: 13,
-    color: '#10B981',
-    fontWeight: '600',
+    color: "#10B981",
+    fontWeight: "600",
   },
   confirmButton: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 18,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 8,
     flex: 1,
   },
   confirmButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#FFFFFF',
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
   confirmActionRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 10,
   },
+  categoryPickerLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+    marginBottom: 10,
+  },
+  categoryPickerRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 20,
+  },
+  categoryPickerChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
+  },
+  categoryPickerChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  categoryPickerChipTextActive: {
+    color: "#FFFFFF",
+  },
   confirmButtonSecondary: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
   },
   confirmButtonSecondaryText: {
-    color: '#374151',
+    color: "#374151",
   },
   quickLogModalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 20,
     padding: 20,
-    width: '100%',
+    width: "100%",
     maxWidth: 420,
   },
   quickLogHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 14,
   },
   quickLogTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   quickLogLabel: {
     fontSize: 13,
-    color: '#374151',
+    color: "#374151",
     marginBottom: 6,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   quickLogInput: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: "#D1D5DB",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    color: '#111827',
+    color: "#111827",
     marginBottom: 12,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
   },
   quickLogNotesInput: {
     minHeight: 90,
   },
   quickLogSaveButton: {
     marginTop: 4,
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
     borderRadius: 10,
     paddingVertical: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   quickLogSaveButtonDisabled: {
-    backgroundColor: '#BFDBFE',
+    backgroundColor: "#BFDBFE",
   },
   quickLogSaveButtonText: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: "700",
   },
 });

@@ -1,4 +1,13 @@
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+import { getToken, signIn, signOut } from "./auth";
+
+// Optional callback the app can register to react to an expired/invalid session
+// (e.g. redirect to the login screen).
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
+}
 
 function resolveApiBaseUrl() {
   const constantsAny = Constants as unknown as {
@@ -6,6 +15,7 @@ function resolveApiBaseUrl() {
       hostUri?: string;
       extra?: { EXPO_PUBLIC_API_URL?: string };
     };
+    expoGoConfig?: { debuggerHost?: string };
     manifest2?: {
       extra?: {
         EXPO_PUBLIC_API_URL?: string;
@@ -15,55 +25,168 @@ function resolveApiBaseUrl() {
     manifest?: {
       extra?: { EXPO_PUBLIC_API_URL?: string };
       debuggerHost?: string;
+      hostUri?: string;
     };
   };
 
-  // Try Expo runtime config first, then environment variable
-  const expoExtraUrl =
+  // Explicit override wins (set EXPO_PUBLIC_API_URL only if you need it).
+  const explicitUrl =
     constantsAny.expoConfig?.extra?.EXPO_PUBLIC_API_URL ||
     constantsAny.manifest2?.extra?.EXPO_PUBLIC_API_URL ||
     constantsAny.manifest?.extra?.EXPO_PUBLIC_API_URL ||
     process.env.EXPO_PUBLIC_API_URL;
 
-  if (expoExtraUrl) {
-    return expoExtraUrl;
+  if (explicitUrl) {
+    return explicitUrl;
   }
 
-  // Detect Expo host IP automatically
+  // Otherwise auto-detect the LAN IP from whatever host the Expo dev server
+  // (Metro) is served on — the phone already reaches that IP, so the backend
+  // on the same machine is reachable at <that-ip>:5001. This keeps working
+  // even when your network/IP changes.
   const hostFromExpo =
     constantsAny.expoConfig?.hostUri ||
+    constantsAny.expoGoConfig?.debuggerHost ||
     constantsAny.manifest2?.extra?.expoGo?.debuggerHost ||
+    constantsAny.manifest?.hostUri ||
     constantsAny.manifest?.debuggerHost;
 
   if (hostFromExpo) {
-    const hostIp = hostFromExpo.split(':')[0];
-    return `http://${hostIp}:5000`;
+    const hostIp = hostFromExpo.split(":")[0];
+    return `http://${hostIp}:5001`;
   }
 
-  return 'http://localhost:5000';
+  return "http://localhost:5001";
 }
 
 export const API_BASE_URL = resolveApiBaseUrl();
 
-type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-  body?: unknown;
+// The Python Whisper speech-to-text service runs on port 8000 (the Node backend
+// auto-starts it). It lives on the same machine as the backend, so reuse the
+// backend's host and just swap the port. Override with EXPO_PUBLIC_STT_URL.
+function resolveSttBaseUrl() {
+  const explicit =
+    process.env.EXPO_PUBLIC_STT_URL ||
+    (Constants as any)?.expoConfig?.extra?.EXPO_PUBLIC_STT_URL;
+  if (explicit) {
+    return explicit;
+  }
+
+  try {
+    const url = new URL(API_BASE_URL);
+    return `${url.protocol}//${url.hostname}:8000`;
+  } catch {
+    return "http://localhost:8000";
+  }
+}
+
+export const STT_BASE_URL = resolveSttBaseUrl();
+
+if (__DEV__) {
+  console.log(`[api] Using backend base URL: ${API_BASE_URL}`);
+  console.log(`[api] Using speech-to-text URL: ${STT_BASE_URL}`);
+}
+
+export type TranscriptionResult = {
+  success: boolean;
+  text: string;
+  language?: string;
+  processing_time?: number;
 };
 
-async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const url = `${API_BASE_URL}${path}`;
+/**
+ * Uploads a recorded audio file to the Whisper speech-to-text service and
+ * returns the transcribed text. `fileUri` is the local URI produced by
+ * expo-audio's recorder (e.g. file:///.../recording.m4a).
+ */
+export async function transcribeAudio(
+  fileUri: string,
+): Promise<TranscriptionResult> {
+  const url = `${STT_BASE_URL}/transcribe`;
+
+  const formData = new FormData();
+
+  if (Platform.OS === "web") {
+    // On web the recorder hands back a blob: URL — fetch it and attach the Blob.
+    const fetched = await fetch(fileUri);
+    const blob = await fetched.blob();
+    formData.append("file", blob, "recording.webm");
+  } else {
+    // React Native: attach the local file URI directly.
+    let filename = fileUri.split("/").pop() || "recording.m4a";
+    if (!filename.includes(".")) {
+      filename += ".m4a";
+    }
+    const ext = filename.split(".").pop()?.toLowerCase() || "m4a";
+    formData.append("file", {
+      uri: fileUri,
+      name: filename,
+      type: `audio/${ext}`,
+    } as any);
+  }
 
   try {
     const response = await fetch(url, {
-      method: options.method || 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      method: "POST",
+      body: formData,
+      headers: { Accept: "application/json" },
+    });
+
+    const rawText = await response.text();
+    const data = rawText ? JSON.parse(rawText) : {};
+
+    if (!response.ok) {
+      throw new Error(
+        data?.detail || data?.message || `Transcription failed (${response.status})`,
+      );
+    }
+
+    return data as TranscriptionResult;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Cannot reach speech-to-text service at ${STT_BASE_URL}. Make sure the backend (and STT service) is running.`,
+      );
+    }
+    throw error;
+  }
+}
+
+type RequestOptions = {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  body?: unknown;
+};
+
+async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const url = `${API_BASE_URL}${path}`;
+
+  try {
+    const token = getToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, {
+      method: options.method || "GET",
+      headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
 
     const rawText = await response.text();
     const data = rawText ? JSON.parse(rawText) : {};
+
+    if (response.status === 401) {
+      // Token missing/expired — drop the session and notify the app.
+      await signOut();
+      if (onUnauthorized) onUnauthorized();
+      throw new Error(data?.message || "Your session has expired. Please sign in again.");
+    }
 
     if (!response.ok) {
       throw new Error(data?.message || `Request failed (${response.status})`);
@@ -77,7 +200,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
 
     if (error instanceof TypeError) {
       throw new Error(
-        `Cannot reach backend at ${API_BASE_URL}. Make sure backend is running and phone/emulator can access this IP.`
+        `Cannot reach backend at ${API_BASE_URL}. Make sure backend is running and phone/emulator can access this IP.`,
       );
     }
 
@@ -87,6 +210,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
 
 export type LoginResponse = {
   message: string;
+  token: string;
   user: {
     email: string;
     fullName: string;
@@ -96,25 +220,47 @@ export type LoginResponse = {
   };
 };
 
-export async function registerUser(payload: { email: string; phone: string; password: string }) {
-  return apiRequest<{ message: string; userId: string; email: string }>('/api/v1/auth/register', {
-    method: 'POST',
+export async function registerUser(payload: {
+  email: string;
+  phone: string;
+  password: string;
+}) {
+  const result = await apiRequest<{
+    message: string;
+    token: string;
+    userId: string;
+    email: string;
+  }>("/api/v1/auth/register", {
+    method: "POST",
     body: payload,
   });
-}
 
-export async function verifyUser(payload: { email: string; code: string }) {
-  return apiRequest<{ message: string; email: string }>('/api/v1/auth/verify', {
-    method: 'POST',
-    body: payload,
-  });
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.email,
+      role: "patient",
+      fullName: result.email.split("@")[0],
+    });
+  }
+
+  return result;
 }
 
 export async function loginUser(payload: { email: string; password: string }) {
-  return apiRequest<LoginResponse>('/api/v1/auth/login', {
-    method: 'POST',
+  const result = await apiRequest<LoginResponse>("/api/v1/auth/login", {
+    method: "POST",
     body: payload,
   });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.user.email,
+      role: "patient",
+      fullName: result.user.fullName || result.user.email.split("@")[0],
+    });
+  }
+
+  return result;
 }
 
 export async function saveUserProfile(payload: {
@@ -132,10 +278,13 @@ export async function saveUserProfile(payload: {
     units: string;
   };
 }) {
-  return apiRequest<{ message: string; user: Record<string, unknown> }>('/api/v1/users/profile', {
-    method: 'POST',
-    body: payload,
-  });
+  return apiRequest<{ message: string; user: Record<string, unknown> }>(
+    "/api/v1/users/profile",
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
 }
 
 export type UserSubscription = {
@@ -162,24 +311,24 @@ export async function saveUserSubscription(payload: {
   };
 }) {
   return apiRequest<{ message: string; subscription: UserSubscription }>(
-    '/api/v1/users/subscriptions',
+    "/api/v1/users/subscriptions",
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
   );
 }
 
 export async function fetchUserSubscriptions(email: string) {
   return apiRequest<{ subscriptions: UserSubscription[] }>(
-    `/api/v1/users/${encodeURIComponent(email)}/subscriptions`
+    `/api/v1/users/${encodeURIComponent(email)}/subscriptions`,
   );
 }
 
 export type Professional = {
   _id?: string;
   id?: string;
-  type: 'doctor' | 'nutritionist' | 'coach';
+  type: "doctor" | "nutritionist" | "coach";
   title: string;
   description: string;
   icon: string;
@@ -197,7 +346,76 @@ export type Professional = {
 };
 
 export async function fetchProfessionals() {
-  return apiRequest<{ professionals: Professional[] }>('/api/v1/professionals');
+  return apiRequest<{ professionals: Professional[] }>("/api/v1/professionals");
+}
+
+export type RegisteredProfessional = {
+  id: string;
+  fullName: string;
+  email: string;
+  type: "doctor" | "nutritionist" | "coach";
+  specialty: string;
+  bio?: string;
+  rating: number;
+  reviewCount: number;
+  createdAt?: string;
+};
+
+export async function registerProfessional(payload: {
+  fullName: string;
+  email: string;
+  password: string;
+  type: "doctor" | "nutritionist" | "coach";
+  specialty?: string;
+}) {
+  const result = await apiRequest<{
+    message: string;
+    token: string;
+    professional: RegisteredProfessional;
+  }>("/api/v1/professionals/register", {
+    method: "POST",
+    body: payload,
+  });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.professional.email,
+      role: "professional",
+      fullName: result.professional.fullName,
+    });
+  }
+
+  return result;
+}
+
+export async function loginProfessional(payload: {
+  email: string;
+  password: string;
+}) {
+  const result = await apiRequest<{
+    message: string;
+    token: string;
+    professional: RegisteredProfessional;
+  }>("/api/v1/professionals/login", {
+    method: "POST",
+    body: payload,
+  });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.professional.email,
+      role: "professional",
+      fullName: result.professional.fullName,
+    });
+  }
+
+  return result;
+}
+
+export async function fetchRegisteredProfessionals() {
+  return apiRequest<{ professionals: RegisteredProfessional[] }>(
+    "/api/v1/professionals/registered",
+  );
 }
 
 export async function getUserByEmail(email: string) {
@@ -220,13 +438,18 @@ export type PatientDashboard = {
     weight: string;
     phone: string;
   };
-  metrics: Array<Record<string, unknown>>;
-  recentActivities: Array<Record<string, unknown>>;
-  quickActions: Array<Record<string, unknown>>;
-  logs: Array<Record<string, unknown>>;
-  plans: Array<Record<string, unknown>>;
-  messages: Array<Record<string, unknown>>;
-  professionals: Array<Record<string, unknown>>;
+  metrics: Record<string, unknown>[];
+  healthMetrics?: {
+    calories: { current: number; goal: number };
+    sleep: { bedtime: string; wakeTime: string };
+    water: { amount: number; unit: "cups" | "litres"; goal: number };
+  };
+  recentActivities: Record<string, unknown>[];
+  quickActions: Record<string, unknown>[];
+  logs: Record<string, unknown>[];
+  plans: Record<string, unknown>[];
+  messages: Record<string, unknown>[];
+  professionals: Record<string, unknown>[];
 };
 
 export type DashboardLog = {
@@ -247,27 +470,27 @@ export type DashboardLog = {
 
 export type DoctorDashboard = {
   doctor: Record<string, unknown>;
-  metrics: Array<Record<string, unknown>>;
-  recentAlerts: Array<Record<string, unknown>>;
-  patientActivity: Array<Record<string, unknown>>;
-  patients: Array<Record<string, unknown>>;
-  plans: Array<Record<string, unknown>>;
+  metrics: Record<string, unknown>[];
+  recentAlerts: Record<string, unknown>[];
+  patientActivity: Record<string, unknown>[];
+  patients: Record<string, unknown>[];
+  plans: Record<string, unknown>[];
   analytics: {
-    stats: Array<Record<string, unknown>>;
-    patientsByCondition: Array<Record<string, unknown>>;
-    weeklyActivity: Array<Record<string, unknown>>;
-    alertTrends: Array<Record<string, unknown>>;
+    stats: Record<string, unknown>[];
+    patientsByCondition: Record<string, unknown>[];
+    weeklyActivity: Record<string, unknown>[];
+    alertTrends: Record<string, unknown>[];
   };
 };
 
 export async function fetchPatientDashboard(email: string) {
   return apiRequest<PatientDashboard>(
-    `/api/v1/dashboard/patient/${encodeURIComponent(email)}`
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}`,
   );
 }
 
 export async function fetchDashboardStats(email?: string) {
-  const query = email ? `?email=${encodeURIComponent(email)}` : '';
+  const query = email ? `?email=${encodeURIComponent(email)}` : "";
   return apiRequest<DashboardLog[]>(`/api/dashboard-stats${query}`);
 }
 
@@ -278,14 +501,59 @@ export async function savePatientLog(
     title: string;
     subtitle?: string;
     note?: string;
-  }
+  },
 ) {
   return apiRequest<{ message: string; logId: string }>(
     `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs`,
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
+  );
+}
+
+export async function updatePatientLog(
+  email: string,
+  logId: string,
+  payload: {
+    type: string;
+    title: string;
+    subtitle?: string;
+    note?: string;
+  },
+) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs/${encodeURIComponent(logId)}`,
+    {
+      method: "PUT",
+      body: payload,
+    },
+  );
+}
+
+export async function deletePatientLog(email: string, logId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs/${encodeURIComponent(logId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+export async function savePatientMetrics(
+  email: string,
+  payload: {
+    calories?: { current: number; goal: number };
+    sleep?: { bedtime: string; wakeTime: string };
+    water?: { amount: number; unit: "cups" | "litres"; goal: number };
+  },
+) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/metrics`,
+    {
+      method: "PUT",
+      body: payload,
+    },
   );
 }
 
@@ -295,20 +563,20 @@ export async function savePatientPlan(
     title: string;
     description: string;
     type?: string;
-  }
+  },
 ) {
   return apiRequest<{ message: string; planId: string }>(
     `/api/v1/dashboard/patient/${encodeURIComponent(email)}/plans`,
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
   );
 }
 
 export async function fetchDoctorDashboard(email: string) {
   return apiRequest<DoctorDashboard>(
-    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}`
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}`,
   );
 }
 
@@ -324,20 +592,20 @@ export async function saveDoctorPlan(
     adherence: number;
     description: string;
     goals: string[];
-  }
+  },
 ) {
   return apiRequest<{ message: string; planId: string }>(
     `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans`,
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
   );
 }
 
 export async function fetchDoctorAlerts(email: string) {
-  return apiRequest<{ alerts: Array<Record<string, unknown>> }>(
-    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts`
+  return apiRequest<{ alerts: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts`,
   );
 }
 
@@ -345,26 +613,26 @@ export async function resolveDoctorAlert(email: string, alertId: string) {
   return apiRequest<{ message: string }>(
     `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts/${encodeURIComponent(alertId)}/resolve`,
     {
-      method: 'PATCH',
-    }
+      method: "PATCH",
+    },
   );
 }
 
 export async function fetchDoctorPatients(email: string) {
-  return apiRequest<{ patients: Array<Record<string, unknown>> }>(
-    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/patients`
+  return apiRequest<{ patients: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/patients`,
   );
 }
 
 export async function fetchDoctorAnalytics(email: string) {
-  return apiRequest<DoctorDashboard['analytics']>(
-    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/analytics`
+  return apiRequest<DoctorDashboard["analytics"]>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/analytics`,
   );
 }
 
 export async function fetchMessages(email: string) {
-  return apiRequest<{ messages: Array<Record<string, unknown>> }>(
-    `/api/v1/dashboard/messages/${encodeURIComponent(email)}`
+  return apiRequest<{ messages: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/messages/${encodeURIComponent(email)}`,
   );
 }
 
@@ -374,31 +642,13 @@ export async function sendMessage(
     doctorId: string;
     doctorName: string;
     message: string;
-  }
+  },
 ) {
   return apiRequest<{ message: string; messageId: string }>(
     `/api/v1/dashboard/messages/${encodeURIComponent(email)}`,
     {
-      method: 'POST',
+      method: "POST",
       body: payload,
-    }
+    },
   );
-}
-
-export async function signInDoctor(payload: {
-  email: string;
-  doctorName: string;
-  specialty?: string;
-}) {
-  return apiRequest<{
-    message: string;
-    doctor: {
-      email: string;
-      doctorName: string;
-      specialty: string;
-    };
-  }>('/api/v1/dashboard/doctor-login', {
-    method: 'POST',
-    body: payload,
-  });
 }

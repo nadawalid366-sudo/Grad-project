@@ -1,7 +1,6 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
     Modal,
     SafeAreaView,
@@ -11,11 +10,16 @@ import {
     TextInput,
     TouchableOpacity,
     View,
-} from 'react-native';
-import { fetchDoctorDashboard, saveDoctorPlan } from '../../services/api';
+} from "react-native";
+import { fetchDoctorDashboard, saveDoctorPlan } from "../../services/api";
 
-type PlanStatus = 'Active' | 'Completed' | 'Draft';
-type PlanType = 'Meal Plan' | 'Workout Plan' | 'Medication Plan' | 'Sleep Plan' | 'General Health';
+type PlanStatus = "Active" | "Completed" | "Draft";
+type PlanType =
+  | "Meal Plan"
+  | "Workout Plan"
+  | "Medication Plan"
+  | "Sleep Plan"
+  | "General Health";
 
 interface Plan {
   id: string;
@@ -31,31 +35,30 @@ interface Plan {
 }
 
 export default function DocPlansScreen() {
-  const route = useRoute();
+  const { doctorName: doctorNameParam, email: emailParam } = useLocalSearchParams<{ doctorName?: string; email?: string }>();
   const router = useRouter();
-  const [doctorName, setDoctorName] = useState('Doctor');
-  const [doctorEmail, setDoctorEmail] = useState('doctor@example.com');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState<PlanStatus | 'All'>('All');
-  const [selectedType, setSelectedType] = useState<PlanType | 'All'>('All');
-  const [selectedTab, setSelectedTab] = useState('plans');
+  const [doctorName, setDoctorName] = useState("Doctor");
+  const [doctorEmail, setDoctorEmail] = useState("doctor@example.com");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedStatus, setSelectedStatus] = useState<PlanStatus | "All">(
+    "All",
+  );
+  const [selectedType, setSelectedType] = useState<PlanType | "All">("All");
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [isDetailsModalVisible, setIsDetailsModalVisible] = useState(false);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
-  const [editDescription, setEditDescription] = useState('');
-  const [editGoalsText, setEditGoalsText] = useState('');
-  const [editStartDate, setEditStartDate] = useState('');
-  const [editEndDate, setEditEndDate] = useState('');
-  const [editAdherence, setEditAdherence] = useState('');
-  const [editStatus, setEditStatus] = useState<PlanStatus>('Draft');
+  const [editDescription, setEditDescription] = useState("");
+  const [editGoalsText, setEditGoalsText] = useState("");
+  const [editStartDate, setEditStartDate] = useState("");
+  const [editEndDate, setEditEndDate] = useState("");
+  const [editAdherence, setEditAdherence] = useState("");
+  const [editStatus, setEditStatus] = useState<PlanStatus>("Draft");
 
   useEffect(() => {
-    const params = route.params as any;
-    const name = params?.doctorName || 'Doctor';
-    setDoctorName(name);
-    setDoctorEmail(params?.email || 'doctor@example.com');
-  }, [route.params]);
+    setDoctorName(doctorNameParam || "Doctor");
+    setDoctorEmail(emailParam || "doctor@example.com");
+  }, [doctorNameParam, emailParam]);
 
   useEffect(() => {
     let active = true;
@@ -63,190 +66,103 @@ export default function DocPlansScreen() {
       .then((response) => {
         if (!active) return;
 
-        const mappedPlans = (response.plans || []).map((plan: any, index: number) => ({
-          id: plan.id || plan._id || String(index + 1),
-          patientName: plan.patientName,
-          patientAge: Number(plan.patientAge || 0),
-          planType: plan.planType,
-          status: plan.status,
-          startDate: plan.startDate,
-          endDate: plan.endDate,
-          adherence: Number(plan.adherence || 0),
-          description: plan.description,
-          goals: plan.goals || [],
-        }));
+        const mappedPlans = (response.plans || []).map(
+          (plan: any, index: number) => ({
+            id: plan.id || plan._id || String(index + 1),
+            patientName: plan.patientName,
+            patientAge: Number(plan.patientAge || 0),
+            planType: plan.planType,
+            status: plan.status,
+            startDate: plan.startDate,
+            endDate: plan.endDate,
+            adherence: Number(plan.adherence || 0),
+            description: plan.description,
+            goals: plan.goals || [],
+          }),
+        );
 
         setAllPlans(mappedPlans);
       })
-      .catch((error) => console.log('Failed to load doctor plans:', error));
+      .catch((error) => console.log("Failed to load doctor plans:", error));
 
     return () => {
       active = false;
     };
   }, [doctorEmail]);
 
-  const [allPlans, setAllPlans] = useState<Plan[]>([
-    {
-      id: '1',
-      patientName: 'Ahmed Mohamed',
-      patientAge: 45,
-      planType: 'Meal Plan',
-      status: 'Active',
-      startDate: 'Feb 20, 2026',
-      endDate: 'Mar 20, 2026',
-      adherence: 85,
-      description: 'Low-carb diabetic meal plan with 1800 cal/day target',
-      goals: ['Reduce blood glucose', 'Weight loss', 'Improve energy'],
-    },
-    {
-      id: '2',
-      patientName: 'Fatima Ali',
-      patientAge: 38,
-      planType: 'Workout Plan',
-      status: 'Active',
-      startDate: 'Feb 15, 2026',
-      endDate: 'Apr 15, 2026',
-      adherence: 92,
-      description: 'Moderate intensity cardio and strength training',
-      goals: ['Improve cardiovascular health', 'Build muscle'],
-    },
-    {
-      id: '3',
-      patientName: 'Omar Hassan',
-      patientAge: 52,
-      planType: 'Medication Plan',
-      status: 'Active',
-      startDate: 'Jan 15, 2026',
-      endDate: 'Jul 15, 2026',
-      adherence: 78,
-      description: 'Daily insulin with meal timing and monitoring',
-      goals: ['Maintain glucose levels', 'Prevent complications'],
-    },
-    {
-      id: '4',
-      patientName: 'Layla Ahmed',
-      patientAge: 34,
-      planType: 'Sleep Plan',
-      status: 'Active',
-      startDate: 'Feb 25, 2026',
-      endDate: 'Apr 25, 2026',
-      adherence: 88,
-      description: 'Improve sleep hygiene and establish routine',
-      goals: ['8 hours consistent sleep', 'Reduce stress'],
-    },
-    {
-      id: '5',
-      patientName: 'Sara Ibrahim',
-      patientAge: 29,
-      planType: 'General Health',
-      status: 'Active',
-      startDate: 'Mar 1, 2026',
-      endDate: 'Jun 1, 2026',
-      adherence: 65,
-      description: 'Comprehensive lifestyle and wellness program',
-      goals: ['Weight management', 'Healthy habits', 'Nutrition'],
-    },
-    {
-      id: '6',
-      patientName: 'Ahmed Mohamed',
-      patientAge: 45,
-      planType: 'Workout Plan',
-      status: 'Completed',
-      startDate: 'Dec 20, 2025',
-      endDate: 'Feb 20, 2026',
-      adherence: 90,
-      description: 'Walking and light stretching program',
-      goals: ['Increase activity', 'Improve mobility'],
-    },
-    {
-      id: '7',
-      patientName: 'Fatima Ali',
-      patientAge: 38,
-      planType: 'Meal Plan',
-      status: 'Completed',
-      startDate: 'Jan 1, 2026',
-      endDate: 'Feb 1, 2026',
-      adherence: 88,
-      description: 'Heart-healthy DASH diet plan',
-      goals: ['Lower BP', 'Reduce sodium'],
-    },
-    {
-      id: '8',
-      patientName: 'Layla Ahmed',
-      patientAge: 34,
-      planType: 'Medication Plan',
-      status: 'Draft',
-      startDate: 'Mar 10, 2026',
-      endDate: 'Sep 10, 2026',
-      adherence: 0,
-      description: 'New asthma management plan with inhaler schedule',
-      goals: ['Control asthma', 'Prevent attacks'],
-    },
-  ]);
+  const [allPlans, setAllPlans] = useState<Plan[]>([]);
 
   const renderStatusIcon = (status: PlanStatus) => {
     switch (status) {
-      case 'Active':
+      case "Active":
         return <Ionicons name="play-circle" size={14} color="#1E40AF" />;
-      case 'Completed':
+      case "Completed":
         return <Ionicons name="checkmark" size={14} color="#065F46" />;
-      case 'Draft':
+      case "Draft":
         return <Ionicons name="help-outline" size={14} color="#6B7280" />;
     }
   };
 
   const getStatusColor = (status: PlanStatus) => {
     switch (status) {
-      case 'Active':
-        return { bg: '#DBEAFE', text: '#1E40AF' };
-      case 'Completed':
-        return { bg: '#D1FAE5', text: '#065F46' };
-      case 'Draft':
-        return { bg: '#F3F4F6', text: '#6B7280' };
+      case "Active":
+        return { bg: "#DBEAFE", text: "#1E40AF" };
+      case "Completed":
+        return { bg: "#D1FAE5", text: "#065F46" };
+      case "Draft":
+        return { bg: "#F3F4F6", text: "#6B7280" };
     }
   };
 
   const getPlanTypeColor = (type: PlanType) => {
     const colors: { [key in PlanType]: string } = {
-      'Meal Plan': '#FEE2E2',
-      'Workout Plan': '#DBEAFE',
-      'Medication Plan': '#FEF3C7',
-      'Sleep Plan': '#E9D5FF',
-      'General Health': '#CCFBF1',
+      "Meal Plan": "#FEE2E2",
+      "Workout Plan": "#DBEAFE",
+      "Medication Plan": "#FEF3C7",
+      "Sleep Plan": "#E9D5FF",
+      "General Health": "#CCFBF1",
     };
     return colors[type];
   };
 
   const getPlanTypeIcon = (type: PlanType) => {
-    const icons: { [key in PlanType]: keyof typeof MaterialCommunityIcons.glyphMap } = {
-      'Meal Plan': 'food-apple',
-      'Workout Plan': 'dumbbell',
-      'Medication Plan': 'pill',
-      'Sleep Plan': 'bed',
-      'General Health': 'heart',
+    const icons: {
+      [key in PlanType]: keyof typeof MaterialCommunityIcons.glyphMap;
+    } = {
+      "Meal Plan": "food-apple",
+      "Workout Plan": "dumbbell",
+      "Medication Plan": "pill",
+      "Sleep Plan": "bed",
+      "General Health": "heart",
     };
     return icons[type];
   };
 
-  const filteredPlans = allPlans.filter(plan => {
-    const matchesSearch = plan.patientName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = selectedStatus === 'All' || plan.status === selectedStatus;
-    const matchesType = selectedType === 'All' || plan.planType === selectedType;
+  const filteredPlans = allPlans.filter((plan) => {
+    const matchesSearch = plan.patientName
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase());
+    const matchesStatus =
+      selectedStatus === "All" || plan.status === selectedStatus;
+    const matchesType =
+      selectedType === "All" || plan.planType === selectedType;
     return matchesSearch && matchesStatus && matchesType;
   });
 
-  const activePlansCount = allPlans.filter(p => p.status === 'Active').length;
-  const completedPlansCount = allPlans.filter(p => p.status === 'Completed').length;
-  const draftPlansCount = allPlans.filter(p => p.status === 'Draft').length;
+  const activePlansCount = allPlans.filter((p) => p.status === "Active").length;
+  const completedPlansCount = allPlans.filter(
+    (p) => p.status === "Completed",
+  ).length;
+  const draftPlansCount = allPlans.filter((p) => p.status === "Draft").length;
 
   const getAdherenceColor = (adherence: number) => {
     if (adherence >= 85) {
-      return '#10B981';
+      return "#10B981";
     }
     if (adherence >= 60) {
-      return '#F59E0B';
+      return "#F59E0B";
     }
-    return '#EF4444';
+    return "#EF4444";
   };
 
   const handleViewPlanDetails = (plan: Plan) => {
@@ -262,7 +178,7 @@ export default function DocPlansScreen() {
   const handleOpenEditPlan = (plan: Plan) => {
     setEditingPlan(plan);
     setEditDescription(plan.description);
-    setEditGoalsText(plan.goals.join(', '));
+    setEditGoalsText(plan.goals.join(", "));
     setEditStartDate(plan.startDate);
     setEditEndDate(plan.endDate);
     setEditAdherence(String(plan.adherence));
@@ -273,12 +189,12 @@ export default function DocPlansScreen() {
   const handleCloseEditPlan = () => {
     setIsEditModalVisible(false);
     setEditingPlan(null);
-    setEditDescription('');
-    setEditGoalsText('');
-    setEditStartDate('');
-    setEditEndDate('');
-    setEditAdherence('');
-    setEditStatus('Draft');
+    setEditDescription("");
+    setEditGoalsText("");
+    setEditStartDate("");
+    setEditEndDate("");
+    setEditAdherence("");
+    setEditStatus("Draft");
   };
 
   const handleSaveEditedPlan = () => {
@@ -292,7 +208,7 @@ export default function DocPlansScreen() {
       : editingPlan.adherence;
 
     const nextGoals = editGoalsText
-      .split(',')
+      .split(",")
       .map((goal) => goal.trim())
       .filter(Boolean);
 
@@ -307,7 +223,9 @@ export default function DocPlansScreen() {
     };
 
     setAllPlans((prevPlans) =>
-      prevPlans.map((plan) => (plan.id === editingPlan.id ? updatedPlan : plan))
+      prevPlans.map((plan) =>
+        plan.id === editingPlan.id ? updatedPlan : plan,
+      ),
     );
 
     saveDoctorPlan(doctorEmail, {
@@ -320,10 +238,12 @@ export default function DocPlansScreen() {
       adherence: updatedPlan.adherence,
       description: updatedPlan.description,
       goals: updatedPlan.goals,
-    }).catch((error) => console.log('Failed to save doctor plan:', error));
+    }).catch((error) => console.log("Failed to save doctor plan:", error));
 
     setSelectedPlan((prevSelected) =>
-      prevSelected && prevSelected.id === editingPlan.id ? updatedPlan : prevSelected
+      prevSelected && prevSelected.id === editingPlan.id
+        ? updatedPlan
+        : prevSelected,
     );
 
     handleCloseEditPlan();
@@ -335,7 +255,12 @@ export default function DocPlansScreen() {
     return (
       <View key={plan.id} style={styles.planCard}>
         <View style={styles.planHeader}>
-          <View style={[styles.planTypeIcon, { backgroundColor: getPlanTypeColor(plan.planType) }]}>
+          <View
+            style={[
+              styles.planTypeIcon,
+              { backgroundColor: getPlanTypeColor(plan.planType) },
+            ]}
+          >
             <MaterialCommunityIcons
               name={getPlanTypeIcon(plan.planType)}
               size={24}
@@ -344,9 +269,13 @@ export default function DocPlansScreen() {
           </View>
           <View style={styles.planHeaderContent}>
             <Text style={styles.planTypeText}>{plan.planType}</Text>
-            <Text style={styles.patientNameText}>{plan.patientName}, {plan.patientAge}</Text>
+            <Text style={styles.patientNameText}>
+              {plan.patientName}, {plan.patientAge}
+            </Text>
           </View>
-          <View style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}>
+          <View
+            style={[styles.statusBadge, { backgroundColor: statusColor.bg }]}
+          >
             {renderStatusIcon(plan.status)}
             <Text style={[styles.statusText, { color: statusColor.text }]}>
               {plan.status}
@@ -379,7 +308,11 @@ export default function DocPlansScreen() {
                 {
                   width: `${plan.adherence}%`,
                   backgroundColor:
-                    plan.adherence >= 85 ? '#10B981' : plan.adherence >= 60 ? '#F59E0B' : '#EF4444',
+                    plan.adherence >= 85
+                      ? "#10B981"
+                      : plan.adherence >= 60
+                        ? "#F59E0B"
+                        : "#EF4444",
                 },
               ]}
             />
@@ -428,7 +361,9 @@ export default function DocPlansScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>Treatment Plans</Text>
-            <Text style={styles.headerSubtitle}>Manage patient health plans</Text>
+            <Text style={styles.headerSubtitle}>
+              Manage patient health plans
+            </Text>
           </View>
           <TouchableOpacity style={styles.createButton}>
             <Ionicons name="add" size={24} color="#FFFFFF" />
@@ -480,14 +415,14 @@ export default function DocPlansScreen() {
             <TouchableOpacity
               style={[
                 styles.filterChip,
-                selectedStatus === 'All' && styles.filterChipActive,
+                selectedStatus === "All" && styles.filterChipActive,
               ]}
-              onPress={() => setSelectedStatus('All')}
+              onPress={() => setSelectedStatus("All")}
             >
               <Text
                 style={[
                   styles.filterChipText,
-                  selectedStatus === 'All' && styles.filterChipTextActive,
+                  selectedStatus === "All" && styles.filterChipTextActive,
                 ]}
               >
                 All
@@ -497,14 +432,14 @@ export default function DocPlansScreen() {
             <TouchableOpacity
               style={[
                 styles.filterChip,
-                selectedStatus === 'Active' && styles.filterChipActive,
+                selectedStatus === "Active" && styles.filterChipActive,
               ]}
-              onPress={() => setSelectedStatus('Active')}
+              onPress={() => setSelectedStatus("Active")}
             >
               <Text
                 style={[
                   styles.filterChipText,
-                  selectedStatus === 'Active' && styles.filterChipTextActive,
+                  selectedStatus === "Active" && styles.filterChipTextActive,
                 ]}
               >
                 Active
@@ -514,14 +449,14 @@ export default function DocPlansScreen() {
             <TouchableOpacity
               style={[
                 styles.filterChip,
-                selectedStatus === 'Completed' && styles.filterChipActive,
+                selectedStatus === "Completed" && styles.filterChipActive,
               ]}
-              onPress={() => setSelectedStatus('Completed')}
+              onPress={() => setSelectedStatus("Completed")}
             >
               <Text
                 style={[
                   styles.filterChipText,
-                  selectedStatus === 'Completed' && styles.filterChipTextActive,
+                  selectedStatus === "Completed" && styles.filterChipTextActive,
                 ]}
               >
                 Completed
@@ -531,14 +466,14 @@ export default function DocPlansScreen() {
             <TouchableOpacity
               style={[
                 styles.filterChip,
-                selectedStatus === 'Draft' && styles.filterChipActive,
+                selectedStatus === "Draft" && styles.filterChipActive,
               ]}
-              onPress={() => setSelectedStatus('Draft')}
+              onPress={() => setSelectedStatus("Draft")}
             >
               <Text
                 style={[
                   styles.filterChipText,
-                  selectedStatus === 'Draft' && styles.filterChipTextActive,
+                  selectedStatus === "Draft" && styles.filterChipTextActive,
                 ]}
               >
                 Draft
@@ -557,14 +492,14 @@ export default function DocPlansScreen() {
             <TouchableOpacity
               style={[
                 styles.typeChip,
-                selectedType === 'All' && styles.typeChipActive,
+                selectedType === "All" && styles.typeChipActive,
               ]}
-              onPress={() => setSelectedType('All')}
+              onPress={() => setSelectedType("All")}
             >
               <Text
                 style={[
                   styles.typeChipText,
-                  selectedType === 'All' && styles.typeChipTextActive,
+                  selectedType === "All" && styles.typeChipTextActive,
                 ]}
               >
                 All Types
@@ -574,15 +509,19 @@ export default function DocPlansScreen() {
             <TouchableOpacity
               style={[
                 styles.typeChip,
-                selectedType === 'Meal Plan' && styles.typeChipActive,
+                selectedType === "Meal Plan" && styles.typeChipActive,
               ]}
-              onPress={() => setSelectedType('Meal Plan')}
+              onPress={() => setSelectedType("Meal Plan")}
             >
-              <MaterialCommunityIcons name="food-apple" size={14} color="currentColor" />
+              <MaterialCommunityIcons
+                name="food-apple"
+                size={14}
+                color="currentColor"
+              />
               <Text
                 style={[
                   styles.typeChipText,
-                  selectedType === 'Meal Plan' && styles.typeChipTextActive,
+                  selectedType === "Meal Plan" && styles.typeChipTextActive,
                 ]}
               >
                 Meal
@@ -592,15 +531,19 @@ export default function DocPlansScreen() {
             <TouchableOpacity
               style={[
                 styles.typeChip,
-                selectedType === 'Workout Plan' && styles.typeChipActive,
+                selectedType === "Workout Plan" && styles.typeChipActive,
               ]}
-              onPress={() => setSelectedType('Workout Plan')}
+              onPress={() => setSelectedType("Workout Plan")}
             >
-              <MaterialCommunityIcons name="dumbbell" size={14} color="currentColor" />
+              <MaterialCommunityIcons
+                name="dumbbell"
+                size={14}
+                color="currentColor"
+              />
               <Text
                 style={[
                   styles.typeChipText,
-                  selectedType === 'Workout Plan' && styles.typeChipTextActive,
+                  selectedType === "Workout Plan" && styles.typeChipTextActive,
                 ]}
               >
                 Workout
@@ -610,15 +553,20 @@ export default function DocPlansScreen() {
             <TouchableOpacity
               style={[
                 styles.typeChip,
-                selectedType === 'Medication Plan' && styles.typeChipActive,
+                selectedType === "Medication Plan" && styles.typeChipActive,
               ]}
-              onPress={() => setSelectedType('Medication Plan')}
+              onPress={() => setSelectedType("Medication Plan")}
             >
-              <MaterialCommunityIcons name="pill" size={14} color="currentColor" />
+              <MaterialCommunityIcons
+                name="pill"
+                size={14}
+                color="currentColor"
+              />
               <Text
                 style={[
                   styles.typeChipText,
-                  selectedType === 'Medication Plan' && styles.typeChipTextActive,
+                  selectedType === "Medication Plan" &&
+                    styles.typeChipTextActive,
                 ]}
               >
                 Medicine
@@ -628,15 +576,19 @@ export default function DocPlansScreen() {
             <TouchableOpacity
               style={[
                 styles.typeChip,
-                selectedType === 'Sleep Plan' && styles.typeChipActive,
+                selectedType === "Sleep Plan" && styles.typeChipActive,
               ]}
-              onPress={() => setSelectedType('Sleep Plan')}
+              onPress={() => setSelectedType("Sleep Plan")}
             >
-              <MaterialCommunityIcons name="bed" size={14} color="currentColor" />
+              <MaterialCommunityIcons
+                name="bed"
+                size={14}
+                color="currentColor"
+              />
               <Text
                 style={[
                   styles.typeChipText,
-                  selectedType === 'Sleep Plan' && styles.typeChipTextActive,
+                  selectedType === "Sleep Plan" && styles.typeChipTextActive,
                 ]}
               >
                 Sleep
@@ -682,31 +634,38 @@ export default function DocPlansScreen() {
             {editingPlan && (
               <ScrollView showsVerticalScrollIndicator={false}>
                 <View style={styles.detailsPatientBlock}>
-                  <Text style={styles.detailsPatientName}>{editingPlan.patientName}</Text>
-                  <Text style={styles.detailsPatientMeta}>{editingPlan.planType}</Text>
+                  <Text style={styles.detailsPatientName}>
+                    {editingPlan.patientName}
+                  </Text>
+                  <Text style={styles.detailsPatientMeta}>
+                    {editingPlan.planType}
+                  </Text>
                 </View>
 
                 <Text style={styles.editFieldLabel}>Status</Text>
                 <View style={styles.editStatusRow}>
-                  {(['Active', 'Completed', 'Draft'] as PlanStatus[]).map((status) => (
-                    <TouchableOpacity
-                      key={status}
-                      style={[
-                        styles.editStatusChip,
-                        editStatus === status && styles.editStatusChipActive,
-                      ]}
-                      onPress={() => setEditStatus(status)}
-                    >
-                      <Text
+                  {(["Active", "Completed", "Draft"] as PlanStatus[]).map(
+                    (status) => (
+                      <TouchableOpacity
+                        key={status}
                         style={[
-                          styles.editStatusChipText,
-                          editStatus === status && styles.editStatusChipTextActive,
+                          styles.editStatusChip,
+                          editStatus === status && styles.editStatusChipActive,
                         ]}
+                        onPress={() => setEditStatus(status)}
                       >
-                        {status}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                        <Text
+                          style={[
+                            styles.editStatusChipText,
+                            editStatus === status &&
+                              styles.editStatusChipTextActive,
+                          ]}
+                        >
+                          {status}
+                        </Text>
+                      </TouchableOpacity>
+                    ),
+                  )}
                 </View>
 
                 <Text style={styles.editFieldLabel}>Description</Text>
@@ -718,7 +677,9 @@ export default function DocPlansScreen() {
                   textAlignVertical="top"
                 />
 
-                <Text style={styles.editFieldLabel}>Goals (comma separated)</Text>
+                <Text style={styles.editFieldLabel}>
+                  Goals (comma separated)
+                </Text>
                 <TextInput
                   style={[styles.editInput, styles.editMultilineInput]}
                   value={editGoalsText}
@@ -785,13 +746,19 @@ export default function DocPlansScreen() {
             {selectedPlan && (
               <ScrollView showsVerticalScrollIndicator={false}>
                 <View style={styles.detailsPatientBlock}>
-                  <Text style={styles.detailsPatientName}>{selectedPlan.patientName}</Text>
-                  <Text style={styles.detailsPatientMeta}>Age: {selectedPlan.patientAge}</Text>
+                  <Text style={styles.detailsPatientName}>
+                    {selectedPlan.patientName}
+                  </Text>
+                  <Text style={styles.detailsPatientMeta}>
+                    Age: {selectedPlan.patientAge}
+                  </Text>
                 </View>
 
                 <View style={styles.detailsSection}>
                   <Text style={styles.detailsSectionLabel}>Plan Type</Text>
-                  <Text style={styles.detailsSectionValue}>{selectedPlan.planType}</Text>
+                  <Text style={styles.detailsSectionValue}>
+                    {selectedPlan.planType}
+                  </Text>
                 </View>
 
                 <View style={styles.detailsSection}>
@@ -799,7 +766,9 @@ export default function DocPlansScreen() {
                   <View
                     style={[
                       styles.detailsStatusBadge,
-                      { backgroundColor: getStatusColor(selectedPlan.status).bg },
+                      {
+                        backgroundColor: getStatusColor(selectedPlan.status).bg,
+                      },
                     ]}
                   >
                     {renderStatusIcon(selectedPlan.status)}
@@ -815,8 +784,12 @@ export default function DocPlansScreen() {
                 </View>
 
                 <View style={styles.detailsSection}>
-                  <Text style={styles.detailsSectionLabel}>Plan Description</Text>
-                  <Text style={styles.detailsSectionValue}>{selectedPlan.description}</Text>
+                  <Text style={styles.detailsSectionLabel}>
+                    Plan Description
+                  </Text>
+                  <Text style={styles.detailsSectionValue}>
+                    {selectedPlan.description}
+                  </Text>
                 </View>
 
                 <View style={styles.detailsSection}>
@@ -824,7 +797,11 @@ export default function DocPlansScreen() {
                   <View style={styles.detailsGoalsList}>
                     {selectedPlan.goals.map((goal, index) => (
                       <View key={index} style={styles.detailsGoalItem}>
-                        <Ionicons name="checkmark-circle" size={16} color="#10B981" />
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={16}
+                          color="#10B981"
+                        />
                         <Text style={styles.detailsGoalText}>{goal}</Text>
                       </View>
                     ))}
@@ -833,13 +810,17 @@ export default function DocPlansScreen() {
 
                 <View style={styles.detailsSection}>
                   <Text style={styles.detailsSectionLabel}>Duration</Text>
-                  <Text style={styles.detailsSectionValue}>{selectedPlan.startDate} to {selectedPlan.endDate}</Text>
+                  <Text style={styles.detailsSectionValue}>
+                    {selectedPlan.startDate} to {selectedPlan.endDate}
+                  </Text>
                 </View>
 
                 <View style={styles.detailsSection}>
                   <View style={styles.adherenceLabelContainer}>
                     <Text style={styles.detailsSectionLabel}>Adherence</Text>
-                    <Text style={styles.adherenceValue}>{selectedPlan.adherence}%</Text>
+                    <Text style={styles.adherenceValue}>
+                      {selectedPlan.adherence}%
+                    </Text>
                   </View>
                   <View style={styles.progressBarBackground}>
                     <View
@@ -847,7 +828,9 @@ export default function DocPlansScreen() {
                         styles.progressBarFill,
                         {
                           width: `${selectedPlan.adherence}%`,
-                          backgroundColor: getAdherenceColor(selectedPlan.adherence),
+                          backgroundColor: getAdherenceColor(
+                            selectedPlan.adherence,
+                          ),
                         },
                       ]}
                     />
@@ -863,7 +846,12 @@ export default function DocPlansScreen() {
       <View style={styles.bottomNavigation}>
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push({ pathname: '/(tabs)/dochome', params: { doctorName } })}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/dochome",
+              params: { doctorName, email: doctorEmail },
+            })
+          }
         >
           <Ionicons name="grid" size={24} color="#9CA3AF" />
           <Text style={styles.navLabel}>Dashboard</Text>
@@ -871,7 +859,12 @@ export default function DocPlansScreen() {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push({ pathname: '/(tabs)/patients', params: { doctorName } })}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/patients",
+              params: { doctorName, email: doctorEmail },
+            })
+          }
         >
           <Ionicons name="people" size={24} color="#9CA3AF" />
           <Text style={styles.navLabel}>My Patients</Text>
@@ -879,20 +872,22 @@ export default function DocPlansScreen() {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push({ pathname: '/(tabs)/alerts', params: { doctorName } })}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/alerts",
+              params: { doctorName, email: doctorEmail },
+            })
+          }
         >
           <View style={styles.navIconWithBadge}>
             <Ionicons name="alert-circle" size={24} color="#9CA3AF" />
-            <View style={styles.navBadge}>
-              <Text style={styles.navBadgeText}>5</Text>
-            </View>
           </View>
           <Text style={styles.navLabel}>Alerts</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem}>
           <Ionicons name="clipboard" size={24} color="#3B82F6" />
-          <Text style={[styles.navLabel, { color: '#3B82F6' }]}>Plans</Text>
+          <Text style={[styles.navLabel, { color: "#3B82F6" }]}>Plans</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navItem}>
@@ -907,52 +902,52 @@ export default function DocPlansScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
   },
   scrollContent: {
     paddingBottom: 100,
   },
   header: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 20,
     paddingVertical: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    borderBottomColor: "#E5E7EB",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 4,
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   createButton: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#3B82F6',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#3B82F6",
+    justifyContent: "center",
+    alignItems: "center",
   },
   summarySection: {
-    flexDirection: 'row',
+    flexDirection: "row",
     paddingHorizontal: 16,
     paddingVertical: 16,
     gap: 12,
   },
   summaryCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
@@ -960,40 +955,40 @@ const styles = StyleSheet.create({
   },
   summaryCount: {
     fontSize: 20,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginTop: 4,
     marginBottom: 2,
   },
   summaryLabel: {
     fontSize: 11,
-    color: '#6B7280',
-    fontWeight: '500',
+    color: "#6B7280",
+    fontWeight: "500",
   },
   searchSection: {
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
   searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     gap: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
   },
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: '#111827',
+    color: "#111827",
   },
   filterSection: {
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
   statusFilterContainer: {
     paddingHorizontal: 16,
@@ -1003,47 +998,47 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
   },
   filterChipActive: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
   },
   filterChipText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: "600",
+    color: "#6B7280",
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
   },
   typeFilterSection: {
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
   typeFilterContainer: {
     paddingHorizontal: 16,
     gap: 8,
   },
   typeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 20,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
     gap: 4,
   },
   typeChipActive: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
   },
   typeChipText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: "600",
+    color: "#6B7280",
   },
   typeChipTextActive: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
   },
   plansList: {
     paddingHorizontal: 16,
@@ -1051,18 +1046,18 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   planCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
   planHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 12,
     gap: 12,
   },
@@ -1070,26 +1065,26 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   planHeaderContent: {
     flex: 1,
   },
   planTypeText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: "600",
+    color: "#6B7280",
     marginBottom: 2,
   },
   patientNameText: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
@@ -1097,11 +1092,11 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   planDescription: {
     fontSize: 13,
-    color: '#6B7280',
+    color: "#6B7280",
     lineHeight: 18,
     marginBottom: 12,
   },
@@ -1110,143 +1105,143 @@ const styles = StyleSheet.create({
   },
   goalLabel: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: "600",
+    color: "#374151",
     marginBottom: 6,
   },
   goalsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 6,
   },
   goalTag: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: "#ECFDF5",
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
   },
   goalTagText: {
     fontSize: 11,
-    color: '#065F46',
-    fontWeight: '500',
+    color: "#065F46",
+    fontWeight: "500",
   },
   adherenceSection: {
     marginBottom: 12,
   },
   adherenceLabelContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 6,
   },
   adherenceLabel: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#374151',
+    fontWeight: "600",
+    color: "#374151",
   },
   adherenceValue: {
     fontSize: 13,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   progressBarBackground: {
     height: 6,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
     borderRadius: 3,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   progressBarFill: {
-    height: '100%',
+    height: "100%",
     borderRadius: 3,
   },
   dateSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingBottom: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: "#F3F4F6",
     marginBottom: 12,
     gap: 8,
   },
   dateItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
   },
   dateText: {
     fontSize: 11,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   dateSeparator: {
     fontSize: 12,
-    color: '#D1D5DB',
+    color: "#D1D5DB",
     marginHorizontal: 4,
   },
   planActions: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
   },
   viewButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#DBEAFE',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#DBEAFE",
     paddingVertical: 10,
     borderRadius: 8,
     gap: 4,
   },
   viewButtonText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#3B82F6',
+    fontWeight: "600",
+    color: "#3B82F6",
   },
   editButton: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#D1FAE5',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#D1FAE5",
     paddingVertical: 10,
     borderRadius: 8,
     gap: 4,
   },
   editButtonText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#10B981',
+    fontWeight: "600",
+    color: "#10B981",
   },
   emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 60,
   },
   emptyStateTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginTop: 16,
     marginBottom: 8,
   },
   emptyStateText: {
     fontSize: 13,
-    color: '#6B7280',
-    textAlign: 'center',
+    color: "#6B7280",
+    textAlign: "center",
   },
   bottomSpacer: {
     height: 20,
   },
   bottomNavigation: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: "#E5E7EB",
     paddingBottom: 8,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
@@ -1254,94 +1249,94 @@ const styles = StyleSheet.create({
   },
   navItem: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 12,
   },
   navIconWithBadge: {
-    position: 'relative',
+    position: "relative",
   },
   navBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: -4,
     right: -8,
-    backgroundColor: '#EF4444',
+    backgroundColor: "#EF4444",
     borderRadius: 8,
     width: 16,
     height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   navBadgeText: {
     fontSize: 9,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   navLabel: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
     marginTop: 4,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   detailsOverlay: {
     flex: 1,
-    backgroundColor: '#00000066',
-    justifyContent: 'flex-end',
+    backgroundColor: "#00000066",
+    justifyContent: "flex-end",
   },
   detailsModalContainer: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 28,
-    maxHeight: '80%',
+    maxHeight: "80%",
   },
   detailsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 14,
   },
   detailsTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   detailsPatientBlock: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
     borderRadius: 10,
     padding: 12,
     marginBottom: 12,
   },
   detailsPatientName: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 2,
   },
   detailsPatientMeta: {
     fontSize: 12,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   detailsSection: {
     marginBottom: 14,
   },
   detailsSectionLabel: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: "600",
+    color: "#6B7280",
     marginBottom: 6,
   },
   detailsSectionValue: {
     fontSize: 14,
-    color: '#111827',
+    color: "#111827",
     lineHeight: 20,
   },
   detailsStatusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
@@ -1349,77 +1344,77 @@ const styles = StyleSheet.create({
   },
   detailsStatusText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   detailsGoalsList: {
     gap: 8,
   },
   detailsGoalItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   detailsGoalText: {
     flex: 1,
     fontSize: 13,
-    color: '#111827',
+    color: "#111827",
   },
   editFieldLabel: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: "600",
+    color: "#6B7280",
     marginBottom: 6,
     marginTop: 10,
   },
   editInput: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: "#D1D5DB",
     borderRadius: 10,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 14,
-    color: '#111827',
+    color: "#111827",
   },
   editMultilineInput: {
     minHeight: 84,
   },
   editStatusRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 8,
     marginBottom: 4,
   },
   editStatusChip: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: "#D1D5DB",
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 7,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
   },
   editStatusChipActive: {
-    backgroundColor: '#DBEAFE',
-    borderColor: '#93C5FD',
+    backgroundColor: "#DBEAFE",
+    borderColor: "#93C5FD",
   },
   editStatusChipText: {
     fontSize: 12,
-    fontWeight: '600',
-    color: '#6B7280',
+    fontWeight: "600",
+    color: "#6B7280",
   },
   editStatusChipTextActive: {
-    color: '#1E40AF',
+    color: "#1E40AF",
   },
   saveEditButton: {
     marginTop: 16,
-    backgroundColor: '#10B981',
+    backgroundColor: "#10B981",
     borderRadius: 10,
     paddingVertical: 12,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 8,
   },
   saveEditButtonText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
 });

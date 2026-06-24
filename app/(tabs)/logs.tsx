@@ -1,10 +1,12 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Animated,
   Modal,
+  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -13,7 +15,8 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import { fetchPatientDashboard } from '../../services/api';
+import { deletePatientLog, fetchPatientDashboard, savePatientLog, updatePatientLog } from '../../services/api';
+import { useVoiceTranscription } from '../../hooks/use-voice-transcription';
 
 interface LogEntry {
   id: string;
@@ -76,7 +79,7 @@ function normalizeLogType(type: string, title = '', subtitle = ''): LogCategory 
 }
 
 export default function HealthLogs() {
-  const route = useRoute();
+  const params = useLocalSearchParams<{ fullName?: string; age?: string; height?: string; weight?: string; email?: string }>();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<FilterType>('all');
@@ -86,97 +89,120 @@ export default function HealthLogs() {
   const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState(false);
   const [voiceAssistantScreen, setVoiceAssistantScreen] = useState<'listening' | 'confirmation'>('listening');
   const [selectedLogType, setSelectedLogType] = useState<string>('');
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceLogCategory, setVoiceLogCategory] = useState<LogCategory>('meal');
+  const [isSavingVoiceLog, setIsSavingVoiceLog] = useState(false);
+  const {
+    isRecording,
+    isTranscribing,
+    error: voiceError,
+    start: startVoiceRecording,
+    stopAndTranscribe,
+    cancel: cancelVoiceRecording,
+  } = useVoiceTranscription();
+  const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editSubtitle, setEditSubtitle] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
   const pulseAnim = useRef(new Animated.Value(0)).current;
 
-  // Extract user data from route params
   useEffect(() => {
-    const params = route.params as any;
-    if (params) {
-      setUserData({
-        fullName: params?.fullName || 'User Name',
-        age: params?.age || '',
-        height: params?.height || '',
-        weight: params?.weight || '',
-        email: params?.email || 'user@example.com'
-      });
-    }
-  }, [route.params]);
+    setUserData({
+      fullName: params.fullName || 'User Name',
+      age: params.age || '',
+      height: params.height || '',
+      weight: params.weight || '',
+      email: params.email || 'user@example.com',
+    });
+  }, [params.fullName, params.age, params.height, params.weight, params.email]);
 
-  useEffect(() => {
-    const email = userData?.email;
-    if (!email) {
-      return;
-    }
+  const loadLogs = useCallback(
+    (email: string, isActive: () => boolean = () => true) => {
+      return fetchPatientDashboard(email)
+        .then((response) => {
+          if (!isActive()) return;
 
-    let active = true;
-    fetchPatientDashboard(email)
-      .then((response) => {
-        if (!active) return;
-
-        const mappedLogs = (response.logs || []).map(
-          (log: Record<string, any>, index: number) => {
-            const type = normalizeLogType(String(log.type || ''), String(log.title || ''), String(log.subtitle || log.note || ''));
-            const subtitle = String(log.subtitle || log.note || '');
-            const details =
-              type === 'meal'
-                ? { calories: Number(log.calories ?? 0) }
-                : type === 'exercise'
-                  ? { duration: subtitle || '30 min', calories: Number(log.calories ?? 0), distance: String(log.distance || '') }
-                  : type === 'vitals'
-                    ? {
-                        reading: String(log.blood_pressure ?? (subtitle || 'No reading')),
-                        status: String(log.status || 'Recorded'),
-                        trend: String(log.trend || 'Stable'),
-                      }
-                    : type === 'medication'
-                      ? { dosage: subtitle || 'Taken as prescribed', status: String(log.status || 'Completed') }
-                      : { status: subtitle || 'Logged' };
-
-            return {
-              id: String(log.id || log._id || index + 1),
-              type,
-              title: String(log.title || 'Health Log'),
-              subtitle,
-              timestamp: String(log.timestamp || 'Just now'),
-              icon: (
-                log.icon ||
-                (type === 'meal'
-                  ? 'food-fork-drink'
+          const mappedLogs = (response.logs || []).map(
+            (log: Record<string, any>, index: number) => {
+              const type = normalizeLogType(String(log.type || ''), String(log.title || ''), String(log.subtitle || log.note || ''));
+              const subtitle = String(log.subtitle || log.note || '');
+              const details =
+                type === 'meal'
+                  ? { calories: Number(log.calories ?? 0) }
                   : type === 'exercise'
-                    ? 'walk'
-                    : type === 'medication'
-                      ? 'pill'
-                      : type === 'vitals'
-                        ? 'heart-pulse'
-                        : 'note-text')
-              ) as keyof typeof MaterialCommunityIcons.glyphMap,
-              color: String(
-                log.color ||
-                  (type === 'meal'
-                    ? '#F59E0B'
-                    : type === 'exercise'
-                      ? '#3B82F6'
+                    ? { duration: subtitle || '30 min', calories: Number(log.calories ?? 0), distance: String(log.distance || '') }
+                    : type === 'vitals'
+                      ? {
+                          reading: String(log.blood_pressure ?? (subtitle || 'No reading')),
+                          status: String(log.status || 'Recorded'),
+                          trend: String(log.trend || 'Stable'),
+                        }
                       : type === 'medication'
-                        ? '#EC4899'
+                        ? { dosage: subtitle || 'Taken as prescribed', status: String(log.status || 'Completed') }
+                        : { status: subtitle || 'Logged' };
+
+              return {
+                id: String(log.id || log._id || index + 1),
+                type,
+                title: String(log.title || 'Health Log'),
+                subtitle,
+                timestamp: String(log.timestamp || 'Just now'),
+                icon: (
+                  log.icon ||
+                  (type === 'meal'
+                    ? 'food-fork-drink'
+                    : type === 'exercise'
+                      ? 'walk'
+                      : type === 'medication'
+                        ? 'pill'
                         : type === 'vitals'
-                          ? '#EF4444'
-                          : '#8B5CF6')
-              ),
-              details,
-            };
-          }
-        );
+                          ? 'heart-pulse'
+                          : 'note-text')
+                ) as keyof typeof MaterialCommunityIcons.glyphMap,
+                color: String(
+                  log.color ||
+                    (type === 'meal'
+                      ? '#F59E0B'
+                      : type === 'exercise'
+                        ? '#3B82F6'
+                        : type === 'medication'
+                          ? '#EC4899'
+                          : type === 'vitals'
+                            ? '#EF4444'
+                            : '#8B5CF6')
+                ),
+                details,
+              };
+            }
+          );
 
-        setLogEntries(mappedLogs);
-      })
-      .catch((error) => {
-        console.log('Failed to load logs:', error);
-      });
+          setLogEntries(mappedLogs);
+        })
+        .catch((error) => {
+          console.log('Failed to load logs:', error);
+        });
+    },
+    []
+  );
 
-    return () => {
-      active = false;
-    };
-  }, [userData?.email]);
+  // Reload every time the screen comes into focus. On native (Expo Go) the screen
+  // stays mounted in the navigator, so a plain mount-effect would keep showing
+  // stale data after you add a log on the dashboard and come back here.
+  useFocusEffect(
+    useCallback(() => {
+      const email = userData?.email;
+      if (!email) {
+        return;
+      }
+
+      let active = true;
+      loadLogs(email, () => active);
+
+      return () => {
+        active = false;
+      };
+    }, [userData?.email, loadLogs])
+  );
 
   // Pulsating animation
   useEffect(() => {
@@ -202,17 +228,135 @@ export default function HealthLogs() {
     setIsVoiceAssistantOpen(true);
     setVoiceAssistantScreen('listening');
     setSelectedLogType('');
+    setVoiceTranscript('');
+    startVoiceRecording().catch(() => {});
   };
 
   const handleCloseVoiceAssistant = () => {
+    cancelVoiceRecording().catch(() => {});
     setIsVoiceAssistantOpen(false);
     setVoiceAssistantScreen('listening');
     setSelectedLogType('');
+    setVoiceTranscript('');
     pulseAnim.setValue(0);
   };
 
-  const handleListeningComplete = () => {
+  const handleListeningComplete = async () => {
+    const transcript = await stopAndTranscribe();
+    const cleanTranscript = (transcript || '').trim();
+
+    if (!cleanTranscript) {
+      setVoiceTranscript('');
+      setVoiceAssistantScreen('confirmation');
+      return;
+    }
+
+    // Pre-select the auto-detected category, but let the user change it before
+    // saving on the confirmation screen.
+    const detected = normalizeLogType('', cleanTranscript, cleanTranscript);
+    setVoiceLogCategory(detected);
+    setVoiceTranscript(cleanTranscript);
     setVoiceAssistantScreen('confirmation');
+  };
+
+  const handleSaveVoiceLog = async () => {
+    const email = userData?.email;
+    if (!email || !voiceTranscript.trim()) {
+      handleCloseVoiceAssistant();
+      return;
+    }
+
+    setIsSavingVoiceLog(true);
+    try {
+      await savePatientLog(email, {
+        type: voiceLogCategory,
+        title: voiceTranscript.trim(),
+        subtitle: voiceTranscript.trim(),
+        note: '',
+      });
+      await loadLogs(email);
+      handleCloseVoiceAssistant();
+    } catch (error) {
+      console.log('Failed to save voice log:', error);
+      Alert.alert('Could not save', 'Failed to save the log. Please try again.');
+    } finally {
+      setIsSavingVoiceLog(false);
+    }
+  };
+
+  const handleOpenEdit = (entry: LogEntry) => {
+    setEditingEntry(entry);
+    setEditTitle(entry.title);
+    setEditSubtitle(entry.subtitle);
+  };
+
+  const handleCloseEdit = () => {
+    setEditingEntry(null);
+    setEditTitle('');
+    setEditSubtitle('');
+  };
+
+  const handleSaveEdit = async () => {
+    const email = userData?.email;
+    if (!editingEntry || !email || !editTitle.trim()) {
+      return;
+    }
+
+    setIsSavingEdit(true);
+    try {
+      await updatePatientLog(email, editingEntry.id, {
+        type: editingEntry.type,
+        title: editTitle.trim(),
+        subtitle: editSubtitle.trim(),
+        note: editSubtitle.trim(),
+      });
+      await loadLogs(email);
+      handleCloseEdit();
+    } catch (error) {
+      console.log('Failed to update log:', error);
+      Alert.alert('Could not save', 'Failed to update the log. Please try again.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const performDelete = async (entry: LogEntry) => {
+    const email = userData?.email;
+    if (!email) {
+      return;
+    }
+
+    // Optimistically remove, then reconcile with the server.
+    setLogEntries((prev) => prev.filter((item) => item.id !== entry.id));
+    if (expandedEntryId === entry.id) {
+      setExpandedEntryId(null);
+    }
+
+    try {
+      await deletePatientLog(email, entry.id);
+      await loadLogs(email);
+    } catch (error) {
+      console.log('Failed to delete log:', error);
+      Alert.alert('Could not delete', 'Failed to delete the log. Please try again.');
+      await loadLogs(email);
+    }
+  };
+
+  const handleDeleteEntry = (entry: LogEntry) => {
+    // Alert.alert has no UI on web — delete directly there, confirm on native.
+    if (Platform.OS === 'web') {
+      performDelete(entry);
+      return;
+    }
+
+    Alert.alert(
+      'Delete log',
+      `Delete "${entry.title}"? This can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => performDelete(entry) },
+      ],
+    );
   };
 
   const categories = [
@@ -344,10 +488,10 @@ export default function HealthLogs() {
               )}
 
               <View style={styles.actionButtons}>
-                <TouchableOpacity style={styles.editButton}>
+                <TouchableOpacity style={styles.editButton} onPress={() => handleOpenEdit(entry)}>
                   <Text style={styles.editButtonText}>Edit</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.deleteButton}>
+                <TouchableOpacity style={styles.deleteButton} onPress={() => handleDeleteEntry(entry)}>
                   <Text style={styles.deleteButtonText}>Delete</Text>
                 </TouchableOpacity>
               </View>
@@ -475,6 +619,58 @@ export default function HealthLogs() {
         </TouchableOpacity>
       </View>
 
+      {/* Edit Log Modal */}
+      <Modal
+        visible={editingEntry !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleCloseEdit}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.editModalContent}>
+            <View style={styles.editModalHeader}>
+              <Text style={styles.editModalTitle}>Edit Log</Text>
+              <TouchableOpacity onPress={handleCloseEdit}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.editLabel}>Title</Text>
+            <TextInput
+              style={styles.editInput}
+              value={editTitle}
+              onChangeText={setEditTitle}
+              placeholder="Log title"
+              placeholderTextColor="#9CA3AF"
+            />
+
+            <Text style={styles.editLabel}>Details</Text>
+            <TextInput
+              style={[styles.editInput, styles.editInputMultiline]}
+              value={editSubtitle}
+              onChangeText={setEditSubtitle}
+              placeholder="Add any extra details"
+              placeholderTextColor="#9CA3AF"
+              multiline
+              textAlignVertical="top"
+            />
+
+            <TouchableOpacity
+              style={[
+                styles.editSaveButton,
+                (!editTitle.trim() || isSavingEdit) && styles.editSaveButtonDisabled,
+              ]}
+              onPress={handleSaveEdit}
+              disabled={!editTitle.trim() || isSavingEdit}
+            >
+              <Text style={styles.editSaveButtonText}>
+                {isSavingEdit ? 'Saving...' : 'Save Changes'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Voice Assistant Modal */}
       <Modal
         visible={isVoiceAssistantOpen}
@@ -497,8 +693,10 @@ export default function HealthLogs() {
               </View>
 
               <View style={styles.listeningContainer}>
-                <Text style={styles.listeningLabel}>Listening...</Text>
-                
+                <Text style={styles.listeningLabel}>
+                  {isTranscribing ? 'Transcribing...' : 'Listening...'}
+                </Text>
+
                 {/* Pulsating Waveform Circle */}
                 <View style={styles.pulseContainer}>
                   <Animated.View
@@ -521,18 +719,34 @@ export default function HealthLogs() {
                     ]}
                   />
                   <View style={styles.microphoneCircle}>
-                    <MaterialCommunityIcons name="microphone" size={40} color="#FFFFFF" />
+                    {isTranscribing ? (
+                      <ActivityIndicator size="large" color="#FFFFFF" />
+                    ) : (
+                      <MaterialCommunityIcons name="microphone" size={40} color="#FFFFFF" />
+                    )}
                   </View>
                 </View>
 
-                <Text style={styles.instructionText}>Speak clearly into your device</Text>
+                <Text style={styles.instructionText}>
+                  {voiceError
+                    ? voiceError
+                    : isTranscribing
+                      ? 'Converting your speech to text'
+                      : 'Speak clearly, then tap Done'}
+                </Text>
               </View>
 
               <TouchableOpacity
-                style={styles.listeningButton}
+                style={[
+                  styles.listeningButton,
+                  (isTranscribing || !isRecording) && { opacity: 0.6 },
+                ]}
                 onPress={handleListeningComplete}
+                disabled={isTranscribing || !isRecording}
               >
-                <Text style={styles.listeningButtonText}>Done</Text>
+                <Text style={styles.listeningButtonText}>
+                  {isTranscribing ? 'Please wait...' : 'Done'}
+                </Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -545,18 +759,76 @@ export default function HealthLogs() {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.confirmationDetails}>
-                <Text style={styles.confirmationDetailLabel}>Logged:</Text>
-                <Text style={styles.confirmationDetailValue}>{selectedLogType}</Text>
-                <Text style={styles.detailSubtext}>Your entry has been recorded successfully</Text>
-              </View>
+              {voiceTranscript ? (
+                <>
+                  <View style={styles.confirmationDetails}>
+                    <Text style={styles.confirmationDetailLabel}>You said:</Text>
+                    <Text style={styles.confirmationDetailValue}>
+                      &quot;{voiceTranscript}&quot;
+                    </Text>
+                  </View>
 
-              <TouchableOpacity
-                style={styles.confirmButton}
-                onPress={handleCloseVoiceAssistant}
-              >
-                <Text style={styles.confirmButtonText}>Done</Text>
-              </TouchableOpacity>
+                  <Text style={styles.categoryPickerLabel}>Log as:</Text>
+                  <View style={styles.categoryPickerRow}>
+                    {categories
+                      .filter((category) => category.id !== 'all')
+                      .map((category) => {
+                        const isActive = voiceLogCategory === category.id;
+                        return (
+                          <TouchableOpacity
+                            key={category.id}
+                            onPress={() =>
+                              setVoiceLogCategory(category.id as LogCategory)
+                            }
+                            style={[
+                              styles.categoryPickerChip,
+                              isActive && {
+                                backgroundColor: category.color,
+                                borderColor: category.color,
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.categoryPickerChipText,
+                                isActive && styles.categoryPickerChipTextActive,
+                              ]}
+                            >
+                              {category.label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.confirmButton,
+                      isSavingVoiceLog && { opacity: 0.6 },
+                    ]}
+                    onPress={handleSaveVoiceLog}
+                    disabled={isSavingVoiceLog}
+                  >
+                    <Text style={styles.confirmButtonText}>
+                      {isSavingVoiceLog ? 'Saving...' : 'Save log'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <View style={styles.confirmationDetails}>
+                    <Text style={styles.detailSubtext}>
+                      No speech was detected. Please try again.
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.confirmButton}
+                    onPress={handleCloseVoiceAssistant}
+                  >
+                    <Text style={styles.confirmButtonText}>Done</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           )}
         </View>
@@ -1067,5 +1339,86 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#FFFFFF',
+  },
+  categoryPickerLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 10,
+  },
+  categoryPickerRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 20,
+  },
+  categoryPickerChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+  },
+  categoryPickerChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  categoryPickerChipTextActive: {
+    color: '#FFFFFF',
+  },
+  editModalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    width: '100%',
+    maxWidth: 420,
+  },
+  editModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  editModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  editLabel: {
+    fontSize: 13,
+    color: '#374151',
+    marginBottom: 6,
+    fontWeight: '600',
+  },
+  editInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#111827',
+    marginBottom: 12,
+    backgroundColor: '#F9FAFB',
+  },
+  editInputMultiline: {
+    minHeight: 90,
+  },
+  editSaveButton: {
+    marginTop: 4,
+    backgroundColor: '#3B82F6',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  editSaveButtonDisabled: {
+    backgroundColor: '#BFDBFE',
+  },
+  editSaveButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

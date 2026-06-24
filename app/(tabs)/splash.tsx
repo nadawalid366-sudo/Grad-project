@@ -1,50 +1,51 @@
-import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import React, { useState } from "react";
 import {
-    Dimensions,
     Platform,
     StyleSheet,
     Text,
     TouchableOpacity,
     View,
-} from 'react-native';
-
-const WINDOW_HEIGHT = Dimensions.get('window').height;
-const WINDOW_WIDTH = Dimensions.get('window').width;
+} from "react-native";
 
 export default function SplashScreen() {
-  const [language, setLanguage] = useState('en');
+  const [language, setLanguage] = useState("en");
   const router = useRouter();
 
   const handlePatientPress = () => {
     // Navigate to login page
-    router.push('/(tabs)/login');
+    router.push("/(tabs)/login");
   };
 
   const handleProfessionalPress = () => {
     // Navigate to professional login page
-    router.push('/(tabs)/doclogin');
+    router.push("/(tabs)/doclogin");
   };
 
   const handleLanguagePress = () => {
     // Toggle language
-    setLanguage(language === 'en' ? 'ar' : 'en');
-    console.log('Language toggled to:', language === 'en' ? 'Arabic' : 'English');
+    setLanguage(language === "en" ? "ar" : "en");
+    console.log(
+      "Language toggled to:",
+      language === "en" ? "Arabic" : "English",
+    );
   };
 
   const handleHelpPress = () => {
     // Show help or support modal
-    console.log('Help button pressed');
+    console.log("Help button pressed");
   };
 
-  return <WelcomeScreen
-    language={language}
-    onLanguagePress={handleLanguagePress}
-    onPatientPress={handlePatientPress}
-    onProfessionalPress={handleProfessionalPress}
-    onHelpPress={handleHelpPress}
-  />;
+  return (
+    <WelcomeScreen
+      language={language}
+      onLanguagePress={handleLanguagePress}
+      onPatientPress={handlePatientPress}
+      onProfessionalPress={handleProfessionalPress}
+      onHelpPress={handleHelpPress}
+    />
+  );
 }
 
 // Welcome Screen Component
@@ -127,38 +128,38 @@ function WelcomeScreen({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#0D47A1',
-    position: 'relative',
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: "#0D47A1",
+    position: "relative",
   },
   background: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#0D47A1',
+    backgroundColor: "#0D47A1",
     zIndex: 0,
   },
   languageButton: {
-    position: 'absolute',
+    position: "absolute",
     top: 40,
     right: 24,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     zIndex: 10,
   },
   languageText: {
-    color: 'white',
+    color: "white",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   centerContent: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     zIndex: 5,
     gap: 16,
   },
@@ -166,11 +167,11 @@ const styles = StyleSheet.create({
     width: 120,
     height: 120,
     borderRadius: 60,
-    backgroundColor: 'white',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "white",
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: 16,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
@@ -178,37 +179,37 @@ const styles = StyleSheet.create({
   },
   brandName: {
     fontSize: 48,
-    fontWeight: '700',
-    color: 'white',
-    textAlign: 'center',
+    fontWeight: "700",
+    color: "white",
+    textAlign: "center",
     fontFamily: Platform.select({
-      ios: 'System',
-      android: 'Roboto',
+      ios: "System",
+      android: "Roboto",
       web: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     }),
   },
   tagline: {
     fontSize: 16,
-    color: 'white',
-    textAlign: 'center',
-    fontWeight: '400',
+    color: "white",
+    textAlign: "center",
+    fontWeight: "400",
     marginBottom: 32,
     opacity: 0.95,
   },
   buttonsContainer: {
-    width: '85%',
+    width: "85%",
     maxWidth: 380,
     gap: 12,
     marginTop: 16,
   },
   patientButton: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
     shadowRadius: 6,
@@ -216,52 +217,52 @@ const styles = StyleSheet.create({
   },
   patientButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#0D47A1',
-    textAlign: 'center',
+    fontWeight: "600",
+    color: "#0D47A1",
+    textAlign: "center",
   },
   professionalButton: {
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: 'white',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderColor: "white",
+    justifyContent: "center",
+    alignItems: "center",
   },
   professionalButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: 'white',
-    textAlign: 'center',
+    fontWeight: "600",
+    color: "white",
+    textAlign: "center",
   },
   footer: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 32,
     left: 0,
     right: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     zIndex: 10,
   },
   footerText: {
     fontSize: 12,
-    color: 'white',
+    color: "white",
     opacity: 0.85,
-    textAlign: 'center',
+    textAlign: "center",
   },
   helpButton: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 32,
     right: 24,
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#333333',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
+    backgroundColor: "#333333",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
@@ -270,7 +271,7 @@ const styles = StyleSheet.create({
   },
   helpButtonIcon: {
     fontSize: 24,
-    fontWeight: '700',
-    color: 'white',
+    fontWeight: "700",
+    color: "white",
   },
 });

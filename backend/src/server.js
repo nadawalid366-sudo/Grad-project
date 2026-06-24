@@ -1,25 +1,68 @@
 import dotenv from "dotenv";
+import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import app from "./app.js";
-import { bootstrapCollections } from "./db/bootstrapCollections.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Try backend/.env first, then project-root/.env when launched via npm --prefix backend.
+// Load backend/.env first, then project root .env for npm --prefix usage.
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../.env"), override: false });
 
-const port = Number(process.env.PORT) || 5000;
+import app from "./app.js";
+import { bootstrapCollections } from "./db/bootstrapCollections.js";
+import { getDb } from "./db/mongoClient.js";
+import { startSttService, stopSttService } from "./stt/sttProcess.js";
+
+const port = Number(process.env.PORT) || 5001;
 const host = process.env.HOST || "0.0.0.0";
 
-try {
+async function startServer() {
+  // Verify the MongoDB connection before accepting traffic.
+  try {
+    const db = await getDb();
+    await db.command({ ping: 1 });
+    console.log(`[mongodb] Connection verified (db: ${db.databaseName})`);
+  } catch (error) {
+    console.error("[mongodb] Failed to connect to MongoDB:", error);
+    process.exit(1);
+  }
+
   await bootstrapCollections();
-  app.listen(port, host, () => {
+
+  const server = http.createServer(app);
+
+  server.on("error", (err) => {
+    if (err && err.code === "EADDRINUSE") {
+      console.error(
+        `Port ${port} is already in use. Stop the other process or change PORT in backend/.env.`,
+      );
+      process.exit(1);
+    }
+
+    console.error("Server error:", err);
+    process.exit(1);
+  });
+
+  server.listen(port, host, () => {
     console.log(`Backend running on http://${host}:${port}`);
   });
-} catch (error) {
-  console.error("Failed to initialize database collections", error);
-  process.exit(1);
+
+  // Bring the Python Whisper speech-to-text service online alongside the API.
+  startSttService();
+
+  // Make sure the spawned STT process is torn down when the backend stops.
+  const shutdown = () => {
+    stopSttService();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+  process.on("exit", stopSttService);
 }
+
+startServer().catch((error) => {
+  console.error("Failed to start backend:", error);
+  process.exit(1);
+});

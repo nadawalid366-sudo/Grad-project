@@ -1,60 +1,80 @@
-import { MaterialIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import { MaterialIcons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import React, { useState } from "react";
 import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
-} from 'react-native';
-import { registerUser } from '../../services/api';
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { registerUser } from "../../services/api";
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function SignUpScreen() {
-  const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [language, setLanguage] = useState('en');
+  const [language, setLanguage] = useState("en");
   const router = useRouter();
 
   const handleContinuePress = async () => {
     if (!email || !phone || !password) {
-      alert('Please fill in all fields');
+      alert("Please fill in all fields");
+      return;
+    }
+
+    if (!EMAIL_REGEX.test(email.trim())) {
+      alert("Please enter a valid email address");
+      return;
+    }
+
+    if (password.length < 6) {
+      alert("Password must be at least 6 characters");
       return;
     }
 
     try {
       setIsSubmitting(true);
       const response = await registerUser({ email, phone, password });
-      router.push({ pathname: '/(tabs)/verify', params: { email: response.email } });
+      router.replace({
+        pathname: "/(tabs)/profile",
+        params: { email: response.email },
+      });
     } catch (error) {
-      alert(error instanceof Error ? error.message : 'Failed to create account');
+      alert(
+        error instanceof Error ? error.message : "Failed to create account",
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const handleSignInPress = () => {
-    router.push('/(tabs)/login');
+    router.push("/(tabs)/login");
   };
 
   const handleLanguagePress = () => {
     // Toggle language
-    setLanguage(language === 'en' ? 'ar' : 'en');
-    console.log('Language toggled to:', language === 'en' ? 'Arabic' : 'English');
+    setLanguage(language === "en" ? "ar" : "en");
+    console.log(
+      "Language toggled to:",
+      language === "en" ? "Arabic" : "English",
+    );
   };
 
   const handleHelpPress = () => {
     // Show help or support modal
-    console.log('Help button pressed');
+    console.log("Help button pressed");
   };
 
   const handleBackPress = () => {
     // Navigate back to login screen
-    router.push('/(tabs)/login');
+    router.push("/(tabs)/login");
   };
 
   return (
@@ -89,7 +109,9 @@ export default function SignUpScreen() {
         <View style={styles.cardContainer}>
           {/* Header */}
           <Text style={styles.cardHeading}>Create Account</Text>
-          <Text style={styles.cardSubtitle}>Join VitalConnect to start your health journey</Text>
+          <Text style={styles.cardSubtitle}>
+            Join VitalConnect to start your health journey
+          </Text>
 
           {/* Email Field */}
           <View style={styles.fieldContainer}>
@@ -98,7 +120,12 @@ export default function SignUpScreen() {
               <Text style={styles.requiredAsterisk}>*</Text>
             </View>
             <View style={styles.inputContainer}>
-              <MaterialIcons name="mail" size={20} color="#999" style={styles.inputIcon} />
+              <MaterialIcons
+                name="mail"
+                size={20}
+                color="#999"
+                style={styles.inputIcon}
+              />
               <TextInput
                 style={styles.input}
                 placeholder="you@example.com"
@@ -115,7 +142,12 @@ export default function SignUpScreen() {
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>Phone Number</Text>
             <View style={styles.inputContainer}>
-              <MaterialIcons name="phone" size={20} color="#999" style={styles.inputIcon} />
+              <MaterialIcons
+                name="phone"
+                size={20}
+                color="#999"
+                style={styles.inputIcon}
+              />
               <TextInput
                 style={styles.input}
                 placeholder="+20 123 456 7890"
@@ -131,7 +163,12 @@ export default function SignUpScreen() {
           <View style={styles.fieldContainer}>
             <Text style={styles.fieldLabel}>Password</Text>
             <View style={styles.inputContainer}>
-              <MaterialIcons name="lock" size={20} color="#999" style={styles.inputIcon} />
+              <MaterialIcons
+                name="lock"
+                size={20}
+                color="#999"
+                style={styles.inputIcon}
+              />
               <TextInput
                 style={styles.input}
                 placeholder="••••••••"
@@ -145,7 +182,7 @@ export default function SignUpScreen() {
                 activeOpacity={0.7}
               >
                 <MaterialIcons
-                  name={passwordVisible ? 'visibility' : 'visibility-off'}
+                  name={passwordVisible ? "visibility" : "visibility-off"}
                   size={20}
                   color="#999"
                   style={styles.eyeIcon}
@@ -161,7 +198,9 @@ export default function SignUpScreen() {
             activeOpacity={0.9}
             disabled={isSubmitting}
           >
-            <Text style={styles.continueButtonText}>{isSubmitting ? 'Creating Account...' : 'Continue'}</Text>
+            <Text style={styles.continueButtonText}>
+              {isSubmitting ? "Creating Account..." : "Continue"}
+            </Text>
           </TouchableOpacity>
 
           {/* Sign In Link */}
@@ -189,58 +228,58 @@ export default function SignUpScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0D47A1',
-    position: 'relative',
+    backgroundColor: "#0D47A1",
+    position: "relative",
   },
   background: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'white',
+    backgroundColor: "white",
     zIndex: 0,
   },
   languageButton: {
-    position: 'absolute',
+    position: "absolute",
     top: 40,
     right: 24,
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
     zIndex: 10,
   },
   languageText: {
-    color: 'white',
+    color: "white",
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   backButton: {
-    position: 'absolute',
+    position: "absolute",
     top: 40,
     left: 24,
     width: 48,
     height: 48,
     borderRadius: 24,
-    justifyContent: 'center',
-    
-    alignItems: 'center',
+    justifyContent: "center",
+
+    alignItems: "center",
     zIndex: 10,
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingVertical: 40,
   },
   cardContainer: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 16,
     padding: 32,
     marginHorizontal: 20,
     maxWidth: 500,
-    width: '100%',
-    shadowColor: '#000',
+    width: "100%",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
     //shadowOpacity: 0.15,
     shadowRadius: 16,
@@ -248,44 +287,44 @@ const styles = StyleSheet.create({
   },
   cardHeading: {
     fontSize: 28,
-    fontWeight: '700',
-    color: '#333333',
+    fontWeight: "700",
+    color: "#333333",
     marginBottom: 8,
   },
   cardSubtitle: {
     fontSize: 14,
-    color: '#888888',
+    color: "#888888",
     marginBottom: 32,
-    fontWeight: '400',
+    fontWeight: "400",
   },
   fieldContainer: {
     marginBottom: 24,
   },
   fieldLabelContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 8,
   },
   fieldLabel: {
     fontSize: 14,
-    fontWeight: '600',
-    color: '#333333',
+    fontWeight: "600",
+    color: "#333333",
   },
   requiredAsterisk: {
-    color: '#DC3545',
+    color: "#DC3545",
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: "700",
     marginLeft: 4,
   },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1.5,
-    borderColor: '#E0E0E0',
+    borderColor: "#E0E0E0",
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: "#FAFAFA",
   },
   inputIcon: {
     marginRight: 10,
@@ -293,21 +332,21 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     fontSize: 14,
-    color: '#333333',
+    color: "#333333",
     paddingVertical: 4,
   },
   eyeIcon: {
     marginLeft: 10,
   },
   continueButton: {
-    backgroundColor: '#0D47A1',
+    backgroundColor: "#0D47A1",
     paddingVertical: 16,
     paddingHorizontal: 24,
     borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: 8,
-    shadowColor: '#0D47A1',
+    shadowColor: "#0D47A1",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
@@ -315,36 +354,36 @@ const styles = StyleSheet.create({
   },
   continueButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: 'white',
-    textAlign: 'center',
+    fontWeight: "600",
+    color: "white",
+    textAlign: "center",
   },
   signInContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
     marginTop: 20,
   },
   signInText: {
     fontSize: 14,
-    color: '#888888',
+    color: "#888888",
   },
   signInLink: {
     fontSize: 14,
-    color: '#0D47A1',
-    fontWeight: '600',
+    color: "#0D47A1",
+    fontWeight: "600",
   },
   helpButton: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 32,
     right: 24,
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#333333',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
+    backgroundColor: "#333333",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
@@ -353,7 +392,7 @@ const styles = StyleSheet.create({
   },
   helpButtonIcon: {
     fontSize: 24,
-    fontWeight: '700',
-    color: 'white',
+    fontWeight: "700",
+    color: "white",
   },
 });

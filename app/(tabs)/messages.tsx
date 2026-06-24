@@ -1,21 +1,21 @@
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
-  Dimensions,
-  FlatList,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { fetchMessages, fetchUserSubscriptions, sendMessage } from '../../services/api';
-
-const { width } = Dimensions.get('window');
+    FlatList,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import {
+    fetchMessages,
+    fetchUserSubscriptions,
+    sendMessage,
+} from "../../services/api";
 
 interface Doctor {
   id: string;
@@ -35,29 +35,26 @@ interface SubscriptionBanner {
 interface Message {
   id: string;
   doctorId: string;
-  sender: 'patient' | 'doctor';
+  sender: "patient" | "doctor";
   message: string;
   timestamp: string;
   isRead: boolean;
 }
 
 export default function MessagesPage() {
-  const route = useRoute();
+  const { email: emailParam, subscribedProfessionalTitle, subscribedPlanName, subscribedProfessionalId } = useLocalSearchParams<{ email?: string; subscribedProfessionalTitle?: string; subscribedPlanName?: string; subscribedProfessionalId?: string }>();
   const router = useRouter();
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
-  const [selectedTab, setSelectedTab] = useState('messages');
-  const [messageText, setMessageText] = useState('');
+  const [selectedTab, setSelectedTab] = useState("messages");
+  const [messageText, setMessageText] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [userEmail, setUserEmail] = useState('user@example.com');
-  const [subscriptionBanner, setSubscriptionBanner] = useState<SubscriptionBanner | null>(null);
+  const [userEmail, setUserEmail] = useState("user@example.com");
+  const [subscriptionBanner, setSubscriptionBanner] =
+    useState<SubscriptionBanner | null>(null);
 
   useEffect(() => {
-    const params = route.params as any;
-    const email = params?.email || 'user@example.com';
-    const subscribedProfessionalTitle = params?.subscribedProfessionalTitle;
-    const subscribedPlanName = params?.subscribedPlanName;
-    const subscribedProfessionalId = params?.subscribedProfessionalId;
+    const email = emailParam || "user@example.com";
     setUserEmail(email);
     if (subscribedProfessionalTitle && subscribedPlanName) {
       setSubscriptionBanner({
@@ -67,81 +64,125 @@ export default function MessagesPage() {
     }
 
     let active = true;
-    Promise.all([fetchMessages(email), fetchUserSubscriptions(email).catch(() => ({ subscriptions: [] }))])
+    Promise.all([
+      fetchMessages(email),
+      fetchUserSubscriptions(email).catch(() => ({ subscriptions: [] })),
+    ])
       .then(([messagesResponse, subscriptionsResponse]) => {
         if (!active) return;
 
         const grouped = new Map<string, Doctor & { messages: Message[] }>();
         const flatMessages: Message[] = [];
 
-        const subscriptionDoctors: Doctor[] = (subscriptionsResponse.subscriptions || []).map((subscription: any, index: number) => ({
-          id: String(subscription.professionalId || subscription.id || `subscription-${index + 1}`),
-          name: String(subscription.selectedDoctorName || subscription.professionalTitle || 'Subscribed Program'),
-          specialty: String(subscription.planName || 'Subscribed Plan'),
+        const seenSubscriptionKeys = new Set<string>();
+        const subscriptionDoctors: Doctor[] = (
+          subscriptionsResponse.subscriptions || []
+        )
+          .filter((subscription: any) => {
+            const key = String(
+              subscription.professionalId ||
+                subscription.id ||
+                subscription.professionalTitle,
+            );
+            if (seenSubscriptionKeys.has(key)) return false;
+            seenSubscriptionKeys.add(key);
+            return true;
+          })
+          .map((subscription: any, index: number) => ({
+          id: String(
+            subscription.professionalId ||
+              subscription.id ||
+              `subscription-${index + 1}`,
+          ),
+          name: String(
+            subscription.selectedDoctorName ||
+              subscription.professionalTitle ||
+              "Subscribed Program",
+          ),
+          specialty: String(subscription.planName || "Subscribed Plan"),
           isOnline: true,
-          lastMessage: `Subscribed to ${subscription.planName || 'a plan'}`,
-          lastMessageTime: subscription.subscribedAt ? new Date(subscription.subscribedAt).toLocaleDateString() : 'Now',
+          lastMessage: `Subscribed to ${subscription.planName || "a plan"}`,
+          lastMessageTime: subscription.subscribedAt
+            ? new Date(subscription.subscribedAt).toLocaleDateString()
+            : "Now",
           unreadCount: 0,
         }));
 
-        (messagesResponse.messages || []).forEach((item: any, index: number) => {
-          const doctorId = String(item.doctorId || '1');
-          const doctorName = String(item.doctorName || 'Dr. Ahmed Hassan');
+        (messagesResponse.messages || []).forEach(
+          (item: any, index: number) => {
+            const doctorId = String(item.doctorId || "1");
+            const doctorName = String(item.doctorName || "Care Team");
 
-          if (!grouped.has(doctorId)) {
-            grouped.set(doctorId, {
-              id: doctorId,
-              name: doctorName,
-              specialty: String(item.specialty || 'Care Team'),
-              isOnline: Boolean(item.isOnline ?? true),
-              lastMessage: String(item.lastMessage || item.message || ''),
-              lastMessageTime: String(item.lastMessageTime || item.timestamp || ''),
-              unreadCount: Number(item.unreadCount || 0),
-              messages: [],
-            });
-          }
+            if (!grouped.has(doctorId)) {
+              grouped.set(doctorId, {
+                id: doctorId,
+                name: doctorName,
+                specialty: String(item.specialty || "Care Team"),
+                isOnline: Boolean(item.isOnline ?? true),
+                lastMessage: String(item.lastMessage || item.message || ""),
+                lastMessageTime: String(
+                  item.lastMessageTime || item.timestamp || "",
+                ),
+                unreadCount: Number(item.unreadCount || 0),
+                messages: [],
+              });
+            }
 
-          const message: Message = {
-            id: String(item.id || item._id || index + 1),
-            doctorId,
-            sender: item.sender === 'doctor' ? 'doctor' : 'patient',
-            message: String(item.message || ''),
-            timestamp: String(item.timestamp || 'Now'),
-            isRead: Boolean(item.isRead ?? true),
-          };
+            const message: Message = {
+              id: String(item.id || item._id || index + 1),
+              doctorId,
+              sender: item.sender === "doctor" ? "doctor" : "patient",
+              message: String(item.message || ""),
+              timestamp: String(item.timestamp || "Now"),
+              isRead: Boolean(item.isRead ?? true),
+            };
 
-          grouped.get(doctorId)!.messages.push(message);
-          flatMessages.push(message);
-        });
+            grouped.get(doctorId)!.messages.push(message);
+            flatMessages.push(message);
+          },
+        );
 
-        const messageDoctors = Array.from(grouped.values()).map(({ messages: doctorMessages, ...doctor }) => doctor);
+        const messageDoctors = Array.from(grouped.values()).map(
+          ({ messages: doctorMessages, ...doctor }) => doctor,
+        );
         const mergedDoctors = [
           ...subscriptionDoctors,
-          ...messageDoctors.filter((doctor) => !subscriptionDoctors.some((subscriptionDoctor) => subscriptionDoctor.id === doctor.id)),
+          ...messageDoctors.filter(
+            (doctor) =>
+              !subscriptionDoctors.some(
+                (subscriptionDoctor) => subscriptionDoctor.id === doctor.id,
+              ),
+          ),
         ];
 
         setDoctors(mergedDoctors);
         setMessages(flatMessages);
 
         const preferredDoctor =
-          mergedDoctors.find((doctor) => doctor.id === String(subscribedProfessionalId)) ||
-          mergedDoctors.find((doctor) => doctor.name === String(subscribedProfessionalTitle)) ||
+          mergedDoctors.find(
+            (doctor) => doctor.id === String(subscribedProfessionalId),
+          ) ||
+          mergedDoctors.find(
+            (doctor) => doctor.name === String(subscribedProfessionalTitle),
+          ) ||
           mergedDoctors[0] ||
           null;
 
-        setSelectedDoctor((currentSelected) => currentSelected || preferredDoctor);
+        setSelectedDoctor(
+          (currentSelected) => currentSelected || preferredDoctor,
+        );
       })
       .catch((error) => {
-        console.log('Failed to load messages:', error);
+        console.log("Failed to load messages:", error);
       });
 
     return () => {
       active = false;
     };
-  }, [route.params]);
+  }, [emailParam, subscribedProfessionalTitle, subscribedPlanName, subscribedProfessionalId]);
 
   const getDoctorInitials = (name: string) => {
-    const cleanName = name.replace(/^dr\.?\s+/i, '').trim();
+    const cleanName = name.replace(/^dr\.?\s+/i, "").trim();
     const nameParts = cleanName.split(/\s+/).filter(Boolean);
 
     if (nameParts.length >= 2) {
@@ -152,26 +193,29 @@ export default function MessagesPage() {
   };
 
   const handleSendMessage = () => {
-    if (messageText.trim() === '' || !selectedDoctor) {
+    if (messageText.trim() === "" || !selectedDoctor) {
       return;
     }
 
     const newMessage: Message = {
       id: (messages.length + 1).toString(),
       doctorId: selectedDoctor.id,
-      sender: 'patient',
+      sender: "patient",
       message: messageText,
-      timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      timestamp: new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
       isRead: false,
     };
 
     setMessages([...messages, newMessage]);
-    setMessageText('');
+    setMessageText("");
     sendMessage(userEmail, {
       doctorId: selectedDoctor.id,
       doctorName: selectedDoctor.name,
       message: newMessage.message,
-    }).catch((error) => console.log('Failed to send message:', error));
+    }).catch((error) => console.log("Failed to send message:", error));
   };
 
   const messageFilteredByDoctor = selectedDoctor
@@ -189,7 +233,9 @@ export default function MessagesPage() {
       activeOpacity={0.7}
     >
       <View style={styles.doctorAvatarContainer}>
-        <Text style={styles.doctorAvatar}>{getDoctorInitials(doctor.name)}</Text>
+        <Text style={styles.doctorAvatar}>
+          {getDoctorInitials(doctor.name)}
+        </Text>
         {doctor.isOnline && <View style={styles.onlineIndicator} />}
       </View>
 
@@ -217,13 +263,15 @@ export default function MessagesPage() {
       key={message.id}
       style={[
         styles.messageBubble,
-        message.sender === 'patient' ? styles.patientMessage : styles.doctorMessage,
+        message.sender === "patient"
+          ? styles.patientMessage
+          : styles.doctorMessage,
       ]}
     >
       <View
         style={[
           styles.messageBubbleInner,
-          message.sender === 'patient'
+          message.sender === "patient"
             ? styles.patientMessageBubble
             : styles.doctorMessageBubble,
         ]}
@@ -231,7 +279,7 @@ export default function MessagesPage() {
         <Text
           style={[
             styles.messageText,
-            message.sender === 'patient'
+            message.sender === "patient"
               ? styles.patientMessageText
               : styles.doctorMessageText,
           ]}
@@ -241,7 +289,7 @@ export default function MessagesPage() {
         <Text
           style={[
             styles.messageTime,
-            message.sender === 'patient'
+            message.sender === "patient"
               ? styles.patientMessageTime
               : styles.doctorMessageTime,
           ]}
@@ -263,11 +311,18 @@ export default function MessagesPage() {
 
       {subscriptionBanner && (
         <View style={styles.subscriptionBanner}>
-          <MaterialCommunityIcons name="check-decagram" size={20} color="#2563EB" />
+          <MaterialCommunityIcons
+            name="check-decagram"
+            size={20}
+            color="#2563EB"
+          />
           <View style={styles.subscriptionBannerTextWrap}>
-            <Text style={styles.subscriptionBannerTitle}>Subscribed program</Text>
+            <Text style={styles.subscriptionBannerTitle}>
+              Subscribed program
+            </Text>
             <Text style={styles.subscriptionBannerText} numberOfLines={1}>
-              {subscriptionBanner.professionalTitle} - {subscriptionBanner.planName}
+              {subscriptionBanner.professionalTitle} -{" "}
+              {subscriptionBanner.planName}
             </Text>
           </View>
         </View>
@@ -307,11 +362,15 @@ export default function MessagesPage() {
                 <View
                   style={[
                     styles.statusDot,
-                    { backgroundColor: selectedDoctor.isOnline ? '#10B981' : '#9CA3AF' },
+                    {
+                      backgroundColor: selectedDoctor.isOnline
+                        ? "#10B981"
+                        : "#9CA3AF",
+                    },
                   ]}
                 />
                 <Text style={styles.statusText}>
-                  {selectedDoctor.isOnline ? 'Online' : 'Offline'}
+                  {selectedDoctor.isOnline ? "Online" : "Offline"}
                 </Text>
               </View>
             </View>
@@ -335,7 +394,9 @@ export default function MessagesPage() {
                   color="#D1D5DB"
                 />
                 <Text style={styles.emptyStateText}>No messages yet</Text>
-                <Text style={styles.emptyStateSubtext}>Start a conversation!</Text>
+                <Text style={styles.emptyStateSubtext}>
+                  Start a conversation!
+                </Text>
               </View>
             ) : (
               messageFilteredByDoctor.map((message) => renderMessage(message))
@@ -360,15 +421,15 @@ export default function MessagesPage() {
             <TouchableOpacity
               style={[
                 styles.sendButton,
-                messageText.trim() === '' && styles.sendButtonDisabled,
+                messageText.trim() === "" && styles.sendButtonDisabled,
               ]}
               onPress={handleSendMessage}
-              disabled={messageText.trim() === ''}
+              disabled={messageText.trim() === ""}
             >
               <Ionicons
                 name="send"
                 size={18}
-                color={messageText.trim() === '' ? '#D1D5DB' : '#FFFFFF'}
+                color={messageText.trim() === "" ? "#D1D5DB" : "#FFFFFF"}
               />
             </TouchableOpacity>
           </View>
@@ -377,79 +438,114 @@ export default function MessagesPage() {
 
       {/* Bottom Navigation Bar */}
       <View style={styles.bottomNavigation}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push({ pathname: '/(tabs)/home', params: { email: userEmail } })}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/home",
+              params: { email: userEmail },
+            })
+          }
         >
-          <Ionicons 
-            name="home" 
-            size={24} 
-            color={selectedTab === 'home' ? '#3B82F6' : '#9CA3AF'} 
+          <Ionicons
+            name="home"
+            size={24}
+            color={selectedTab === "home" ? "#3B82F6" : "#9CA3AF"}
           />
-          <Text style={[
-            styles.navLabel, 
-            selectedTab === 'home' && { color: '#3B82F6' }
-          ]}>Home</Text>
+          <Text
+            style={[
+              styles.navLabel,
+              selectedTab === "home" && { color: "#3B82F6" },
+            ]}
+          >
+            Home
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push('/(tabs)/logs')}
+          onPress={() => router.push("/(tabs)/logs")}
         >
-          <Ionicons 
-            name="document-text" 
-            size={24} 
-            color={selectedTab === 'logs' ? '#3B82F6' : '#9CA3AF'} 
+          <Ionicons
+            name="document-text"
+            size={24}
+            color={selectedTab === "logs" ? "#3B82F6" : "#9CA3AF"}
           />
-          <Text style={[
-            styles.navLabel,
-            selectedTab === 'logs' && { color: '#3B82F6' }
-          ]}>Logs</Text>
+          <Text
+            style={[
+              styles.navLabel,
+              selectedTab === "logs" && { color: "#3B82F6" },
+            ]}
+          >
+            Logs
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push({ pathname: '/(tabs)/plans', params: { email: userEmail } })}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/plans",
+              params: { email: userEmail },
+            })
+          }
         >
-          <Ionicons 
-            name="calendar" 
-            size={24} 
-            color={selectedTab === 'plans' ? '#3B82F6' : '#9CA3AF'} 
+          <Ionicons
+            name="calendar"
+            size={24}
+            color={selectedTab === "plans" ? "#3B82F6" : "#9CA3AF"}
           />
-          <Text style={[
-            styles.navLabel,
-            selectedTab === 'plans' && { color: '#3B82F6' }
-          ]}>Plans</Text>
+          <Text
+            style={[
+              styles.navLabel,
+              selectedTab === "plans" && { color: "#3B82F6" },
+            ]}
+          >
+            Plans
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.navItem}
-          onPress={() => setSelectedTab('messages')}
+          onPress={() => setSelectedTab("messages")}
         >
-          <Ionicons 
-            name="chatbubble" 
-            size={24} 
-            color={selectedTab === 'messages' ? '#3B82F6' : '#9CA3AF'} 
+          <Ionicons
+            name="chatbubble"
+            size={24}
+            color={selectedTab === "messages" ? "#3B82F6" : "#9CA3AF"}
           />
-          <Text style={[
-            styles.navLabel,
-            selectedTab === 'messages' && { color: '#3B82F6' }
-          ]}>Messages</Text>
+          <Text
+            style={[
+              styles.navLabel,
+              selectedTab === "messages" && { color: "#3B82F6" },
+            ]}
+          >
+            Messages
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.navItem}
-          onPress={() => router.push({ pathname: '/(tabs)/prof', params: { email: userEmail } })}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/prof",
+              params: { email: userEmail },
+            })
+          }
         >
-          <Ionicons 
-            name="person" 
-            size={24} 
-            color={selectedTab === 'profile' ? '#3B82F6' : '#9CA3AF'} 
+          <Ionicons
+            name="person"
+            size={24}
+            color={selectedTab === "profile" ? "#3B82F6" : "#9CA3AF"}
           />
-          <Text style={[
-            styles.navLabel,
-            selectedTab === 'profile' && { color: '#3B82F6' }
-          ]}>Profile</Text>
+          <Text
+            style={[
+              styles.navLabel,
+              selectedTab === "profile" && { color: "#3B82F6" },
+            ]}
+          >
+            Profile
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -459,22 +555,22 @@ export default function MessagesPage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
   },
   headerTitle: {
     fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   headerAction: {
     padding: 8,
@@ -486,11 +582,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderRadius: 14,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: "#EFF6FF",
     borderWidth: 1,
-    borderColor: '#BFDBFE',
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderColor: "#BFDBFE",
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
   subscriptionBannerTextWrap: {
@@ -498,131 +594,131 @@ const styles = StyleSheet.create({
   },
   subscriptionBannerTitle: {
     fontSize: 12,
-    fontWeight: '700',
-    color: '#1D4ED8',
+    fontWeight: "700",
+    color: "#1D4ED8",
     marginBottom: 2,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   subscriptionBannerText: {
     fontSize: 14,
-    color: '#1E3A8A',
-    fontWeight: '600',
+    color: "#1E3A8A",
+    fontWeight: "600",
   },
   listContainer: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
   },
   listHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
   listHeaderTitle: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
   },
   doctorCount: {
     fontSize: 13,
-    color: '#6B7280',
-    fontWeight: '500',
+    color: "#6B7280",
+    fontWeight: "500",
   },
   doctorsList: {
     paddingHorizontal: 12,
     paddingBottom: 100,
   },
   doctorItem: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
-    alignItems: 'center',
-    shadowColor: '#000',
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 1,
   },
   doctorItemActive: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: "#EFF6FF",
     borderLeftWidth: 4,
-    borderLeftColor: '#3B82F6',
+    borderLeftColor: "#3B82F6",
   },
   doctorAvatarContainer: {
-    position: 'relative',
+    position: "relative",
     marginRight: 12,
   },
   doctorAvatar: {
     fontSize: 34,
   },
   onlineIndicator: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     right: 0,
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: '#10B981',
+    backgroundColor: "#10B981",
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: "#FFFFFF",
   },
   doctorInfo: {
     flex: 1,
   },
   doctorName: {
     fontSize: 15,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 2,
   },
   doctorSpecialty: {
     fontSize: 12,
-    color: '#6B7280',
+    color: "#6B7280",
     marginBottom: 4,
   },
   lastMessage: {
     fontSize: 13,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   doctorMeta: {
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    alignItems: "flex-end",
+    justifyContent: "space-between",
     height: 50,
   },
   lastMessageTime: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   unreadBadge: {
-    backgroundColor: '#EF4444',
+    backgroundColor: "#EF4444",
     borderRadius: 10,
     minWidth: 20,
     height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: 6,
   },
   unreadBadgeText: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   chatContainer: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
   },
   chatHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: "#E5E7EB",
     gap: 12,
   },
   backButton: {
@@ -633,13 +729,13 @@ const styles = StyleSheet.create({
   },
   chatDoctorName: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
+    fontWeight: "700",
+    color: "#111827",
     marginBottom: 2,
   },
   statusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
   },
   statusDot: {
@@ -649,7 +745,7 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 12,
-    color: '#6B7280',
+    color: "#6B7280",
   },
   callButton: {
     padding: 8,
@@ -663,88 +759,88 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     paddingVertical: 100,
   },
   emptyStateText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#9CA3AF',
+    fontWeight: "600",
+    color: "#9CA3AF",
     marginTop: 12,
   },
   emptyStateSubtext: {
     fontSize: 13,
-    color: '#D1D5DB',
+    color: "#D1D5DB",
     marginTop: 4,
   },
   messageBubble: {
     marginBottom: 12,
   },
   patientMessage: {
-    alignItems: 'flex-end',
+    alignItems: "flex-end",
   },
   doctorMessage: {
-    alignItems: 'flex-start',
+    alignItems: "flex-start",
   },
   messageBubbleInner: {
-    maxWidth: '80%',
+    maxWidth: "80%",
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
   patientMessageBubble: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: "#3B82F6",
   },
   doctorMessageBubble: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
   },
   messageText: {
     fontSize: 15,
     lineHeight: 20,
   },
   patientMessageText: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
   },
   doctorMessageText: {
-    color: '#111827',
+    color: "#111827",
   },
   messageTime: {
     fontSize: 11,
     marginTop: 4,
   },
   patientMessageTime: {
-    color: '#D1D5DB',
+    color: "#D1D5DB",
   },
   doctorMessageTime: {
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    alignItems: "flex-end",
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: "#E5E7EB",
     gap: 8,
   },
   messageInputWrapper: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3F4F6',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
     borderRadius: 24,
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
     maxHeight: 100,
   },
   messageInput: {
     flex: 1,
     paddingVertical: 10,
     fontSize: 14,
-    color: '#111827',
+    color: "#111827",
   },
   attachButton: {
     padding: 4,
@@ -753,25 +849,25 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#3B82F6',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#3B82F6",
+    justifyContent: "center",
+    alignItems: "center",
   },
   sendButtonDisabled: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
   },
   bottomNavigation: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: "#E5E7EB",
     paddingBottom: 8,
     paddingTop: 8,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
@@ -779,14 +875,14 @@ const styles = StyleSheet.create({
   },
   navItem: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 8,
   },
   navLabel: {
     fontSize: 11,
-    color: '#9CA3AF',
+    color: "#9CA3AF",
     marginTop: 4,
-    fontWeight: '500',
+    fontWeight: "500",
   },
 });

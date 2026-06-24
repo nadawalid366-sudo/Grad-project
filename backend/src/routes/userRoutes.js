@@ -1,28 +1,75 @@
 import express from "express";
+import { ObjectId } from "mongodb";
+import { requireSelf } from "../auth/authMiddleware.js";
 import { getDb } from "../db/mongoClient.js";
 
 const router = express.Router();
 
+// Link a subscribing patient to the professional's patient roster so they
+// show up in that doctor's portal. Safe to call repeatedly (upsert).
+async function linkPatientToProfessional(db, professionalId, patientEmail) {
+  if (!professionalId || !ObjectId.isValid(professionalId)) {
+    return;
+  }
+
+  const doctor = await db
+    .collection("doctors")
+    .findOne({ _id: new ObjectId(professionalId) });
+  if (!doctor) {
+    return;
+  }
+
+  const patient = await db.collection("users").findOne({ email: patientEmail });
+  const profile = patient?.profile || {};
+  const patientName =
+    profile.fullName || patientEmail.split("@")[0] || "Patient";
+
+  await db.collection("doctorPatients").updateOne(
+    { doctorEmail: doctor.email, patientEmail },
+    {
+      $set: {
+        name: patientName,
+        age: Number(profile.age) || 0,
+        gender: profile.gender || "",
+        conditions: profile.medicalConditions || [],
+        lastActivity: "Just now",
+        trend: "stable",
+        updatedAt: new Date(),
+      },
+      $setOnInsert: {
+        doctorEmail: doctor.email,
+        patientEmail,
+        adherence: 0,
+        alerts: 0,
+        createdAt: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+}
+
 router.post("/profile", async (req, res) => {
   try {
-    const { email, profile } = req.body;
+    const { profile } = req.body;
 
-    if (!email || !profile) {
-      return res.status(400).json({ message: "Email and profile are required." });
+    if (!profile) {
+      return res.status(400).json({ message: "Profile is required." });
     }
 
     const db = await getDb();
     const users = db.collection("users");
+    // Identity comes from the verified token, never the request body.
+    const normalizedEmail = req.auth.email;
 
     const result = await users.findOneAndUpdate(
-      { email: email.toLowerCase() },
+      { email: normalizedEmail },
       {
         $set: {
           profile,
           updatedAt: new Date(),
         },
         $setOnInsert: {
-          email: email.toLowerCase(),
+          email: normalizedEmail,
           createdAt: new Date(),
           isVerified: true,
         },
@@ -30,48 +77,68 @@ router.post("/profile", async (req, res) => {
       {
         upsert: true,
         returnDocument: "after",
-      }
+      },
     );
 
     return res.json({
       message: "Profile saved.",
       user: {
-        email: result.email,
-        ...result.profile,
+        email: result.value?.email || normalizedEmail,
+        ...(result.value?.profile || profile),
       },
     });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to save profile.", error: String(error) });
+    return res
+      .status(500)
+      .json({ message: "Failed to save profile.", error: String(error) });
   }
 });
 
 router.post("/subscriptions", async (req, res) => {
   try {
-    const { email, subscription } = req.body;
+    const { subscription } = req.body;
 
-    if (!email || !subscription) {
-      return res.status(400).json({ message: "Email and subscription are required." });
+    if (!subscription) {
+      return res.status(400).json({ message: "Subscription is required." });
     }
 
     const db = await getDb();
     const users = db.collection("users");
+    // Identity comes from the verified token, never the request body.
+    const normalizedEmail = req.auth.email;
 
     const normalizedSubscription = {
-      id: subscription.id || `${subscription.professionalTitle}-${subscription.planName}`,
+      id:
+        subscription.id ||
+        `${subscription.professionalTitle}-${subscription.planName}`,
       professionalId: subscription.professionalId || null,
       professionalTitle: subscription.professionalTitle || "Professional Plan",
       planName: subscription.planName || "Selected Plan",
       amount: Number(subscription.amount || 0),
       period: subscription.period || "per month",
       subscribedAt: new Date(),
-      selectedDoctorName: subscription.selectedDoctorName || subscription.professionalTitle || null,
+      selectedDoctorName:
+        subscription.selectedDoctorName ||
+        subscription.professionalTitle ||
+        null,
     };
 
+    // Remove any prior subscription to the same professional so a patient who
+    // re-subscribes (or taps Pay multiple times) only keeps one entry.
+    const duplicateFilter = normalizedSubscription.professionalId
+      ? { professionalId: normalizedSubscription.professionalId }
+      : { id: normalizedSubscription.id };
+
     await users.updateOne(
-      { email: email.toLowerCase() },
+      { email: normalizedEmail },
+      { $pull: { subscriptions: duplicateFilter } },
+    );
+
+    await users.updateOne(
+      { email: normalizedEmail },
       {
         $setOnInsert: {
-          email: email.toLowerCase(),
+          email: normalizedEmail,
           createdAt: new Date(),
           isVerified: true,
         },
@@ -86,18 +153,31 @@ router.post("/subscriptions", async (req, res) => {
           updatedAt: new Date(),
         },
       },
-      { upsert: true }
+      { upsert: true },
     );
 
-    return res.status(201).json({ message: "Subscription saved.", subscription: normalizedSubscription });
+    await linkPatientToProfessional(
+      db,
+      normalizedSubscription.professionalId,
+      normalizedEmail,
+    );
+
+    return res
+      .status(201)
+      .json({
+        message: "Subscription saved.",
+        subscription: normalizedSubscription,
+      });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to save subscription.", error: String(error) });
+    return res
+      .status(500)
+      .json({ message: "Failed to save subscription.", error: String(error) });
   }
 });
 
-router.get("/:email", async (req, res) => {
+router.get("/:email", requireSelf(), async (req, res) => {
   try {
-    const email = (req.params.email || '').toLowerCase();
+    const email = (req.params.email || "").toLowerCase();
     if (!email) {
       return res.status(400).json({ message: "Email is required." });
     }
@@ -110,7 +190,6 @@ router.get("/:email", async (req, res) => {
       return res.status(404).json({ message: "User not found." });
     }
 
-    // Return non-sensitive user fields only
     const safeUser = {
       email: user.email,
       phone: user.phone,
@@ -122,11 +201,13 @@ router.get("/:email", async (req, res) => {
 
     return res.json({ user: safeUser });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to fetch user.", error: String(error) });
+    return res
+      .status(500)
+      .json({ message: "Failed to fetch user.", error: String(error) });
   }
 });
 
-router.get("/:email/subscriptions", async (req, res) => {
+router.get("/:email/subscriptions", requireSelf(), async (req, res) => {
   try {
     const email = (req.params.email || "").toLowerCase();
     if (!email) {
@@ -143,7 +224,12 @@ router.get("/:email/subscriptions", async (req, res) => {
 
     return res.json({ subscriptions: user.subscriptions || [] });
   } catch (error) {
-    return res.status(500).json({ message: "Failed to fetch subscriptions.", error: String(error) });
+    return res
+      .status(500)
+      .json({
+        message: "Failed to fetch subscriptions.",
+        error: String(error),
+      });
   }
 });
 
