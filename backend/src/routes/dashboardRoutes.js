@@ -214,6 +214,10 @@ router.get("/patient/:email", patientOnly, async (req, res) => {
           stored?.water?.goal ??
           (stored?.water?.unit === "litres" ? 2 : 8),
       },
+      medication: {
+        taken: stored?.medication?.taken ?? (medicationLogs > 0 ? 1 : 0),
+        goal: stored?.medication?.goal ?? 1,
+      },
     };
 
     const metrics = [
@@ -230,9 +234,9 @@ router.get("/patient/:email", patientOnly, async (req, res) => {
       {
         id: "medication",
         title: "Medication",
-        current: medicationLogs > 0 ? 100 : 0,
-        goal: 100,
-        unit: "%",
+        current: healthMetrics.medication.taken,
+        goal: healthMetrics.medication.goal,
+        unit: healthMetrics.medication.goal === 1 ? "dose" : "doses",
         icon: "pill",
         color: "#EC4899",
         backgroundColor: "#FCE7F3",
@@ -405,7 +409,7 @@ router.delete("/patient/:email/logs/:logId", patientOnly, async (req, res) => {
 router.put("/patient/:email/metrics", patientOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
-    const { calories, sleep, water } = req.body;
+    const { calories, sleep, water, medication } = req.body;
     const db = await getDb();
 
     const set = { updatedAt: new Date() };
@@ -427,6 +431,12 @@ router.put("/patient/:email/metrics", patientOnly, async (req, res) => {
         amount: Number(water.amount) || 0,
         unit,
         goal: Number(water.goal) || (unit === "litres" ? 2 : 8),
+      };
+    }
+    if (medication) {
+      set.medication = {
+        taken: Math.max(0, Number(medication.taken) || 0),
+        goal: Math.max(1, Number(medication.goal) || 1),
       };
     }
 

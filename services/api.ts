@@ -443,6 +443,7 @@ export type PatientDashboard = {
     calories: { current: number; goal: number };
     sleep: { bedtime: string; wakeTime: string };
     water: { amount: number; unit: "cups" | "litres"; goal: number };
+    medication: { taken: number; goal: number };
   };
   recentActivities: Record<string, unknown>[];
   quickActions: Record<string, unknown>[];
@@ -546,6 +547,7 @@ export async function savePatientMetrics(
     calories?: { current: number; goal: number };
     sleep?: { bedtime: string; wakeTime: string };
     water?: { amount: number; unit: "cups" | "litres"; goal: number };
+    medication?: { taken: number; goal: number };
   },
 ) {
   return apiRequest<{ message: string }>(
