@@ -2,7 +2,9 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
+    ActivityIndicator,
     Dimensions,
+    RefreshControl,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -28,11 +30,19 @@ interface ChartData {
   label: string;
   value: number;
   percentage: number;
+  condition?: string;
 }
 
 interface AlertTrend {
   severity: string;
   count: number;
+  percentage: number;
+  color: string;
+}
+
+interface ActivityBreakdownItem {
+  label: string;
+  value: number;
   percentage: number;
   color: string;
 }
@@ -60,25 +70,49 @@ export default function Analytics() {
   >("week");
   const [selectedTab, setSelectedTab] = useState("analytics");
   const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const loadAnalytics = useCallback(async () => {
     const email = emailParam || "doctor@example.com";
+    setRefreshing(true);
     try {
       const response = await fetchDoctorAnalytics(email);
       setAnalyticsData(response);
+      setErrorMessage(null);
     } catch (error) {
       console.log("Failed to load analytics:", error);
+      setErrorMessage(
+        error instanceof Error ? error.message : "Failed to load analytics.",
+      );
+    } finally {
+      setRefreshing(false);
     }
   }, [emailParam]);
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
     fetchDoctorAnalytics(emailParam || "doctor@example.com")
       .then((response) => {
-        if (active) setAnalyticsData(response);
+        if (active) {
+          setAnalyticsData(response);
+          setErrorMessage(null);
+        }
       })
       .catch((error) => {
         console.log("Failed to load analytics:", error);
+        if (active) {
+          setErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Failed to load analytics.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
 
     return () => {
@@ -91,10 +125,13 @@ export default function Analytics() {
     analyticsData?.patientsByCondition || [];
   const weeklyActivity: ChartData[] = analyticsData?.weeklyActivity || [];
   const alertTrends: AlertTrend[] = analyticsData?.alertTrends || [];
+  const activityBreakdown: ActivityBreakdownItem[] =
+    analyticsData?.activityBreakdown || [];
   const performanceMetrics: PerformanceMetric[] =
     analyticsData?.performanceMetrics || [];
   const insights: Insight[] = analyticsData?.insights || [];
   const totalPatients: number = analyticsData?.totalPatients ?? 0;
+  const totalLogs: number = analyticsData?.totalLogs ?? 0;
 
   const renderStatCard = (stat: StatCard) => (
     <View
@@ -190,7 +227,7 @@ export default function Analytics() {
               <View style={styles.legendText}>
                 <Text style={styles.legendLabel}>{item.label}</Text>
                 <Text style={styles.legendValue}>
-                  {item.value} ({item.percentage.toFixed(1)}%)
+                  {item.condition ?? `${item.value} (${item.percentage.toFixed(1)}%)`}
                 </Text>
               </View>
             </View>
@@ -232,6 +269,47 @@ export default function Analytics() {
     </View>
   );
 
+  const renderActivityBreakdown = () => {
+    if (activityBreakdown.length === 0) return null;
+    const maxValue = Math.max(...activityBreakdown.map((a) => a.value), 1);
+    return (
+      <View style={styles.chartContainer}>
+        <View style={styles.chartHeader}>
+          <Text style={styles.chartTitle}>Activity Breakdown</Text>
+          <Text style={styles.totalLogsBadge}>{totalLogs} logs</Text>
+        </View>
+        <View style={styles.alertTrendsContainer}>
+          {activityBreakdown.map((item, index) => (
+            <View key={index} style={styles.alertTrendItem}>
+              <View style={styles.alertTrendHeader}>
+                <View style={styles.alertTrendInfo}>
+                  <View
+                    style={[styles.alertDot, { backgroundColor: item.color }]}
+                  />
+                  <Text style={styles.alertSeverity}>{item.label}</Text>
+                </View>
+                <Text style={styles.alertCount}>
+                  {item.value} ({item.percentage.toFixed(1)}%)
+                </Text>
+              </View>
+              <View style={styles.alertProgressBar}>
+                <View
+                  style={[
+                    styles.alertProgressFill,
+                    {
+                      width: `${Math.round((item.value / maxValue) * 100)}%`,
+                      backgroundColor: item.color,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
   const getColorForIndex = (index: number): string => {
     const colors = ["#3B82F6", "#10B981", "#F59E0B", "#8B5CF6"];
     return colors[index % colors.length];
@@ -249,7 +327,45 @@ export default function Analytics() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={loadAnalytics} />
+        }
+      >
+        {loading && !analyticsData ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator size="large" color="#3B82F6" />
+            <Text style={styles.centerStateText}>Loading analytics…</Text>
+          </View>
+        ) : errorMessage && !analyticsData ? (
+          <View style={styles.centerState}>
+            <Ionicons name="cloud-offline" size={48} color="#9CA3AF" />
+            <Text style={styles.centerStateText}>{errorMessage}</Text>
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={loadAnalytics}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : totalPatients === 0 ? (
+          <>
+            <View style={styles.statsGrid}>
+              {stats.map((stat) => renderStatCard(stat))}
+            </View>
+            <View style={styles.centerState}>
+              <Ionicons name="people-outline" size={48} color="#9CA3AF" />
+              <Text style={styles.centerStateTitle}>No patients yet</Text>
+              <Text style={styles.centerStateText}>
+                Analytics will populate as patients subscribe to you and start
+                logging activity.
+              </Text>
+            </View>
+          </>
+        ) : (
+          <>
         {/* Stats Grid */}
         <View style={styles.statsGrid}>
           {stats.map((stat) => renderStatCard(stat))}
@@ -257,6 +373,9 @@ export default function Analytics() {
 
         {/* Bar Chart */}
         {renderBarChart()}
+
+        {/* Activity Breakdown */}
+        {renderActivityBreakdown()}
 
         {/* Patients by Condition */}
         {renderPieChart()}
@@ -307,6 +426,8 @@ export default function Analytics() {
               ))}
             </View>
           </View>
+        )}
+          </>
         )}
 
         <View style={{ height: 100 }} />
@@ -456,6 +577,46 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  centerState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 60,
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  centerStateTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#374151",
+  },
+  centerStateText: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  retryButton: {
+    marginTop: 8,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    backgroundColor: "#3B82F6",
+    borderRadius: 10,
+  },
+  retryButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  totalLogsBadge: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#3B82F6",
+    backgroundColor: "#EFF6FF",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    overflow: "hidden",
   },
   statsGrid: {
     flexDirection: "row",

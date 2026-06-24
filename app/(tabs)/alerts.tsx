@@ -425,7 +425,15 @@ export default function AlertsScreen() {
           <Text style={styles.navLabel}>Plans</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem}>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/analytics",
+              params: { doctorName, email: doctorEmail },
+            })
+          }
+        >
           <Ionicons name="bar-chart" size={24} color="#9CA3AF" />
           <Text style={styles.navLabel}>Analytics</Text>
         </TouchableOpacity>

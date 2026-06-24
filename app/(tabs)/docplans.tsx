@@ -1,8 +1,10 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import {
+    ActivityIndicator,
     Modal,
+    RefreshControl,
     SafeAreaView,
     ScrollView,
     StyleSheet,
@@ -11,7 +13,11 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { fetchDoctorDashboard, saveDoctorPlan } from "../../services/api";
+import {
+  deleteDoctorPlan,
+  fetchDoctorDashboard,
+  saveDoctorPlan,
+} from "../../services/api";
 
 type PlanStatus = "Active" | "Completed" | "Draft";
 type PlanType =
@@ -55,42 +61,85 @@ export default function DocPlansScreen() {
   const [editAdherence, setEditAdherence] = useState("");
   const [editStatus, setEditStatus] = useState<PlanStatus>("Draft");
 
+  // Roster of subscribed patients (for the create-plan patient picker).
+  const [patients, setPatients] = useState<{ name: string; age: number }[]>([]);
+
+  // Delete confirmation.
+  const [planPendingDelete, setPlanPendingDelete] = useState<Plan | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Create plan modal.
+  const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
+  const [createPatientName, setCreatePatientName] = useState("");
+  const [createPatientAge, setCreatePatientAge] = useState("");
+  const [createPlanType, setCreatePlanType] = useState<PlanType>("Meal Plan");
+  const [createStatus, setCreateStatus] = useState<PlanStatus>("Active");
+  const [createDescription, setCreateDescription] = useState("");
+  const [createGoalsText, setCreateGoalsText] = useState("");
+  const [createStartDate, setCreateStartDate] = useState("");
+  const [createEndDate, setCreateEndDate] = useState("");
+  const [createAdherence, setCreateAdherence] = useState("");
+  const [isSavingCreate, setIsSavingCreate] = useState(false);
+
   useEffect(() => {
     setDoctorName(doctorNameParam || "Doctor");
     setDoctorEmail(emailParam || "doctor@example.com");
   }, [doctorNameParam, emailParam]);
 
-  useEffect(() => {
-    let active = true;
-    fetchDoctorDashboard(doctorEmail)
-      .then((response) => {
-        if (!active) return;
+  const [allPlans, setAllPlans] = useState<Plan[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-        const mappedPlans = (response.plans || []).map(
-          (plan: any, index: number) => ({
-            id: plan.id || plan._id || String(index + 1),
-            patientName: plan.patientName,
-            patientAge: Number(plan.patientAge || 0),
-            planType: plan.planType,
-            status: plan.status,
-            startDate: plan.startDate,
-            endDate: plan.endDate,
-            adherence: Number(plan.adherence || 0),
-            description: plan.description,
-            goals: plan.goals || [],
-          }),
-        );
+  const loadPlans = useCallback(async () => {
+    try {
+      const response = await fetchDoctorDashboard(doctorEmail);
+      const mappedPlans: Plan[] = (response.plans || []).map(
+        (plan: any, index: number) => ({
+          id: plan.id || plan._id || String(index + 1),
+          patientName: plan.patientName || "Unknown patient",
+          patientAge: Number(plan.patientAge || 0),
+          planType: plan.planType || "General Health",
+          status: plan.status || "Draft",
+          startDate: plan.startDate || "",
+          endDate: plan.endDate || "",
+          adherence: Number(plan.adherence || 0),
+          description: plan.description || "",
+          goals: Array.isArray(plan.goals) ? plan.goals : [],
+        }),
+      );
+      setAllPlans(mappedPlans);
 
-        setAllPlans(mappedPlans);
-      })
-      .catch((error) => console.log("Failed to load doctor plans:", error));
-
-    return () => {
-      active = false;
-    };
+      setPatients(
+        (response.patients || []).map((patient: any) => ({
+          name: String(patient.name || ""),
+          age: Number(patient.age || 0),
+        })),
+      );
+    } catch (error) {
+      console.log("Failed to load doctor plans:", error);
+    }
   }, [doctorEmail]);
 
-  const [allPlans, setAllPlans] = useState<Plan[]>([]);
+  // Refetch every time the screen is focused so newly created plans show up
+  // (tab screens stay mounted, so a one-shot mount effect would go stale).
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setLoading(true);
+      loadPlans().finally(() => {
+        if (active) setLoading(false);
+      });
+      return () => {
+        active = false;
+      };
+    }, [loadPlans]),
+  );
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadPlans();
+    setRefreshing(false);
+  }, [loadPlans]);
 
   const renderStatusIcon = (status: PlanStatus) => {
     switch (status) {
@@ -249,6 +298,91 @@ export default function DocPlansScreen() {
     handleCloseEditPlan();
   };
 
+  const handleOpenCreatePlan = () => {
+    setCreatePatientName("");
+    setCreatePatientAge("");
+    setCreatePlanType("Meal Plan");
+    setCreateStatus("Active");
+    setCreateDescription("");
+    setCreateGoalsText("");
+    setCreateStartDate("");
+    setCreateEndDate("");
+    setCreateAdherence("");
+    setIsCreateModalVisible(true);
+  };
+
+  const handleCloseCreatePlan = () => {
+    setIsCreateModalVisible(false);
+  };
+
+  const handleSelectCreatePatient = (name: string, age: number) => {
+    setCreatePatientName(name);
+    if (age > 0) setCreatePatientAge(String(age));
+  };
+
+  const handleSaveCreatePlan = async () => {
+    if (!createPatientName.trim() || !createDescription.trim()) {
+      return;
+    }
+
+    const adherenceNum = Number(createAdherence);
+    const safeAdherence = Number.isFinite(adherenceNum)
+      ? Math.max(0, Math.min(100, adherenceNum))
+      : 0;
+    const goals = createGoalsText
+      .split(",")
+      .map((goal) => goal.trim())
+      .filter(Boolean);
+
+    setIsSavingCreate(true);
+    try {
+      await saveDoctorPlan(doctorEmail, {
+        patientName: createPatientName.trim(),
+        patientAge: Number(createPatientAge) || 0,
+        planType: createPlanType,
+        status: createStatus,
+        startDate: createStartDate.trim(),
+        endDate: createEndDate.trim(),
+        adherence: safeAdherence,
+        description: createDescription.trim(),
+        goals,
+      });
+      await loadPlans();
+      setIsCreateModalVisible(false);
+    } catch (error) {
+      console.log("Failed to create doctor plan:", error);
+    } finally {
+      setIsSavingCreate(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!planPendingDelete) {
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      await deleteDoctorPlan(doctorEmail, planPendingDelete.id);
+      setAllPlans((prev) =>
+        prev.filter((plan) => plan.id !== planPendingDelete.id),
+      );
+      // Close any open detail view of the deleted plan.
+      setSelectedPlan((prev) =>
+        prev && prev.id === planPendingDelete.id ? null : prev,
+      );
+      setIsDetailsModalVisible((visible) =>
+        selectedPlan && selectedPlan.id === planPendingDelete.id
+          ? false
+          : visible,
+      );
+      setPlanPendingDelete(null);
+    } catch (error) {
+      console.log("Failed to delete doctor plan:", error);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const renderPlanCard = (plan: Plan) => {
     const statusColor = getStatusColor(plan.status);
 
@@ -346,6 +480,13 @@ export default function DocPlansScreen() {
             <Ionicons name="pencil" size={16} color="#10B981" />
             <Text style={styles.editButtonText}>Edit Plan</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => setPlanPendingDelete(plan)}
+            accessibilityLabel="Delete plan"
+          >
+            <Ionicons name="trash-outline" size={16} color="#EF4444" />
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -356,6 +497,9 @@ export default function DocPlansScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
       >
         {/* Header */}
         <View style={styles.header}>
@@ -365,7 +509,10 @@ export default function DocPlansScreen() {
               Manage patient health plans
             </Text>
           </View>
-          <TouchableOpacity style={styles.createButton}>
+          <TouchableOpacity
+            style={styles.createButton}
+            onPress={handleOpenCreatePlan}
+          >
             <Ionicons name="add" size={24} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
@@ -599,8 +746,22 @@ export default function DocPlansScreen() {
 
         {/* Plans List */}
         <View style={styles.plansList}>
-          {filteredPlans.length > 0 ? (
+          {loading && allPlans.length === 0 ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator size="large" color="#3B82F6" />
+              <Text style={styles.emptyStateText}>Loading plans…</Text>
+            </View>
+          ) : filteredPlans.length > 0 ? (
             filteredPlans.map(renderPlanCard)
+          ) : allPlans.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="document-outline" size={64} color="#D1D5DB" />
+              <Text style={styles.emptyStateTitle}>No Plans Yet</Text>
+              <Text style={styles.emptyStateText}>
+                Create a plan from the dashboard or the + button. It will appear
+                here for the assigned patient.
+              </Text>
+            </View>
           ) : (
             <View style={styles.emptyState}>
               <Ionicons name="document-outline" size={64} color="#D1D5DB" />
@@ -842,6 +1003,252 @@ export default function DocPlansScreen() {
         </View>
       </Modal>
 
+      {/* Create Plan Modal */}
+      <Modal
+        visible={isCreateModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseCreatePlan}
+      >
+        <View style={styles.detailsOverlay}>
+          <View style={styles.detailsModalContainer}>
+            <View style={styles.detailsHeader}>
+              <Text style={styles.detailsTitle}>New Plan</Text>
+              <TouchableOpacity onPress={handleCloseCreatePlan}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.editFieldLabel}>Patient Name</Text>
+              <TextInput
+                style={styles.editInput}
+                value={createPatientName}
+                onChangeText={setCreatePatientName}
+                placeholder="Enter patient name"
+                placeholderTextColor="#9CA3AF"
+              />
+              {patients.length > 0 && (
+                <View style={styles.chipWrapRow}>
+                  {patients.map((patient) => {
+                    const active = createPatientName === patient.name;
+                    return (
+                      <TouchableOpacity
+                        key={patient.name}
+                        style={[
+                          styles.editStatusChip,
+                          active && styles.editStatusChipActive,
+                        ]}
+                        onPress={() =>
+                          handleSelectCreatePatient(patient.name, patient.age)
+                        }
+                      >
+                        <Text
+                          style={[
+                            styles.editStatusChipText,
+                            active && styles.editStatusChipTextActive,
+                          ]}
+                        >
+                          {patient.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              <Text style={styles.editFieldLabel}>Category</Text>
+              <View style={styles.chipWrapRow}>
+                {(
+                  [
+                    "Meal Plan",
+                    "Workout Plan",
+                    "Medication Plan",
+                    "Sleep Plan",
+                    "General Health",
+                  ] as PlanType[]
+                ).map((type) => {
+                  const active = createPlanType === type;
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      style={[
+                        styles.typeSelectChip,
+                        active && styles.typeSelectChipActive,
+                      ]}
+                      onPress={() => setCreatePlanType(type)}
+                    >
+                      <MaterialCommunityIcons
+                        name={getPlanTypeIcon(type)}
+                        size={14}
+                        color={active ? "#FFFFFF" : "#6B7280"}
+                      />
+                      <Text
+                        style={[
+                          styles.typeSelectChipText,
+                          active && styles.typeSelectChipTextActive,
+                        ]}
+                      >
+                        {type}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.editFieldLabel}>Status</Text>
+              <View style={styles.editStatusRow}>
+                {(["Active", "Completed", "Draft"] as PlanStatus[]).map(
+                  (status) => (
+                    <TouchableOpacity
+                      key={status}
+                      style={[
+                        styles.editStatusChip,
+                        createStatus === status && styles.editStatusChipActive,
+                      ]}
+                      onPress={() => setCreateStatus(status)}
+                    >
+                      <Text
+                        style={[
+                          styles.editStatusChipText,
+                          createStatus === status &&
+                            styles.editStatusChipTextActive,
+                        ]}
+                      >
+                        {status}
+                      </Text>
+                    </TouchableOpacity>
+                  ),
+                )}
+              </View>
+
+              <Text style={styles.editFieldLabel}>Description</Text>
+              <TextInput
+                style={[styles.editInput, styles.editMultilineInput]}
+                value={createDescription}
+                onChangeText={setCreateDescription}
+                placeholder="Describe the plan..."
+                placeholderTextColor="#9CA3AF"
+                multiline
+                textAlignVertical="top"
+              />
+
+              <Text style={styles.editFieldLabel}>Goals (comma separated)</Text>
+              <TextInput
+                style={[styles.editInput, styles.editMultilineInput]}
+                value={createGoalsText}
+                onChangeText={setCreateGoalsText}
+                placeholder="e.g. Lower blood pressure, Walk 30 min daily"
+                placeholderTextColor="#9CA3AF"
+                multiline
+                textAlignVertical="top"
+              />
+
+              <Text style={styles.editFieldLabel}>Patient Age</Text>
+              <TextInput
+                style={styles.editInput}
+                value={createPatientAge}
+                onChangeText={setCreatePatientAge}
+                keyboardType="numeric"
+                placeholder="e.g. 45"
+                placeholderTextColor="#9CA3AF"
+              />
+
+              <Text style={styles.editFieldLabel}>Start Date</Text>
+              <TextInput
+                style={styles.editInput}
+                value={createStartDate}
+                onChangeText={setCreateStartDate}
+                placeholder="e.g. Mar 1, 2026"
+                placeholderTextColor="#9CA3AF"
+              />
+
+              <Text style={styles.editFieldLabel}>End Date</Text>
+              <TextInput
+                style={styles.editInput}
+                value={createEndDate}
+                onChangeText={setCreateEndDate}
+                placeholder="e.g. Jun 1, 2026"
+                placeholderTextColor="#9CA3AF"
+              />
+
+              <Text style={styles.editFieldLabel}>Adherence (0-100)</Text>
+              <TextInput
+                style={styles.editInput}
+                value={createAdherence}
+                onChangeText={setCreateAdherence}
+                keyboardType="numeric"
+                placeholder="e.g. 0"
+                placeholderTextColor="#9CA3AF"
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.saveEditButton,
+                  (!createPatientName.trim() ||
+                    !createDescription.trim() ||
+                    isSavingCreate) &&
+                    styles.saveEditButtonDisabled,
+                ]}
+                onPress={handleSaveCreatePlan}
+                disabled={
+                  !createPatientName.trim() ||
+                  !createDescription.trim() ||
+                  isSavingCreate
+                }
+              >
+                <Text style={styles.saveEditButtonText}>
+                  {isSavingCreate ? "Saving…" : "Create Plan"}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={planPendingDelete !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPlanPendingDelete(null)}
+      >
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <View style={styles.confirmIconCircle}>
+              <Ionicons name="trash" size={28} color="#EF4444" />
+            </View>
+            <Text style={styles.confirmTitle}>Delete Plan?</Text>
+            <Text style={styles.confirmText}>
+              {planPendingDelete
+                ? `This will permanently remove the ${planPendingDelete.planType} for ${planPendingDelete.patientName}. This cannot be undone.`
+                : ""}
+            </Text>
+            <View style={styles.confirmActions}>
+              <TouchableOpacity
+                style={styles.confirmCancelButton}
+                onPress={() => setPlanPendingDelete(null)}
+                disabled={isDeleting}
+              >
+                <Text style={styles.confirmCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.confirmDeleteButton,
+                  isDeleting && styles.saveEditButtonDisabled,
+                ]}
+                onPress={handleConfirmDelete}
+                disabled={isDeleting}
+              >
+                <Text style={styles.confirmDeleteText}>
+                  {isDeleting ? "Deleting…" : "Delete"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Bottom Navigation Bar */}
       <View style={styles.bottomNavigation}>
         <TouchableOpacity
@@ -890,7 +1297,15 @@ export default function DocPlansScreen() {
           <Text style={[styles.navLabel, { color: "#3B82F6" }]}>Plans</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.navItem}>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() =>
+            router.push({
+              pathname: "/(tabs)/analytics",
+              params: { doctorName, email: doctorEmail },
+            })
+          }
+        >
           <Ionicons name="bar-chart" size={24} color="#9CA3AF" />
           <Text style={styles.navLabel}>Analytics</Text>
         </TouchableOpacity>
@@ -1211,6 +1626,15 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#10B981",
   },
+  deleteButton: {
+    width: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FEE2E2",
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
   emptyState: {
     alignItems: "center",
     justifyContent: "center",
@@ -1413,6 +1837,104 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   saveEditButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  saveEditButtonDisabled: {
+    opacity: 0.5,
+  },
+  chipWrapRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 8,
+  },
+  typeSelectChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: "#F3F4F6",
+  },
+  typeSelectChipActive: {
+    backgroundColor: "#3B82F6",
+    borderColor: "#3B82F6",
+  },
+  typeSelectChipText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#6B7280",
+  },
+  typeSelectChipTextActive: {
+    color: "#FFFFFF",
+  },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: "#00000066",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+  },
+  confirmCard: {
+    width: "100%",
+    maxWidth: 340,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+  },
+  confirmIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#FEE2E2",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 8,
+  },
+  confirmText: {
+    fontSize: 14,
+    color: "#6B7280",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  confirmActions: {
+    flexDirection: "row",
+    gap: 12,
+    width: "100%",
+  },
+  confirmCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+  },
+  confirmCancelText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  confirmDeleteButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+  },
+  confirmDeleteText: {
     fontSize: 14,
     fontWeight: "700",
     color: "#FFFFFF",

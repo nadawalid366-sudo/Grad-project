@@ -603,6 +603,15 @@ export async function saveDoctorPlan(
   );
 }
 
+export async function deleteDoctorPlan(email: string, planId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans/${encodeURIComponent(planId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
 export async function fetchDoctorAlerts(email: string) {
   return apiRequest<{ alerts: Record<string, unknown>[] }>(
     `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts`,
