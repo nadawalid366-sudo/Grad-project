@@ -37,6 +37,7 @@ const MAPPING = {
   "list.clipboard.fill": "list-alt",
   "chevron.left.forwardslash.chevron.right": "code",
   "chevron.right": "chevron-right",
+  sparkles: "auto-awesome",
 } as IconMapping;
 
 /**

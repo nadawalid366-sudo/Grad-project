@@ -175,4 +175,78 @@ router.post("/login", async (req, res) => {
   }
 });
 
+
+// Assign a patient to a doctor (create patient-doctor link)
+router.post("/assign-patient", async (req, res) => {
+  try {
+    const { patientEmail, doctorEmail } = req.body;
+
+    if (!patientEmail || !doctorEmail) {
+      return res
+        .status(400)
+        .json({ message: "Patient email and doctor email are required." });
+    }
+
+    const normalizedPatientEmail = patientEmail.toLowerCase();
+    const normalizedDoctorEmail = doctorEmail.toLowerCase();
+
+    const db = await getDb();
+
+    // Verify doctor exists
+    const doctor = await db
+      .collection("doctors")
+      .findOne({ email: normalizedDoctorEmail });
+    if (!doctor) {
+      return res.status(404).json({ message: "Doctor not found." });
+    }
+
+    // Verify patient exists
+    const patient = await db
+      .collection("users")
+      .findOne({ email: normalizedPatientEmail });
+    if (!patient) {
+      return res.status(404).json({ message: "Patient not found." });
+    }
+
+    // Check if this patient is already assigned to this doctor
+    const existing = await db
+      .collection("doctorPatients")
+      .findOne({
+        doctorEmail: normalizedDoctorEmail,
+        patientEmail: normalizedPatientEmail,
+      });
+
+    if (existing) {
+      return res
+        .status(409)
+        .json({ message: "Patient is already assigned to this doctor." });
+    }
+
+    // Create the patient-doctor link
+    const result = await db.collection("doctorPatients").insertOne({
+      doctorEmail: normalizedDoctorEmail,
+      doctorId: doctor._id.toString(),
+      patientEmail: normalizedPatientEmail,
+      patientId: patient._id.toString(),
+      assignedAt: new Date(),
+      status: "active",
+    });
+
+    return res.status(201).json({
+      message: "Patient assigned to doctor successfully.",
+      link: {
+        id: result.insertedId.toString(),
+        doctorEmail: normalizedDoctorEmail,
+        patientEmail: normalizedPatientEmail,
+        assignedAt: new Date(),
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to assign patient to doctor.",
+      error: String(error),
+    });
+  }
+});
+
 export default router;

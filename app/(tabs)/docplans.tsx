@@ -65,7 +65,11 @@ export default function DocPlansScreen() {
   const [allPlans, setAllPlans] = useState<Plan[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
+  useEffect(() => {
+    let active = true;
+    fetchDoctorDashboard(doctorEmail)
+      .then((response: any) => {
+        if (!active) return;
         const mappedPlans = (response.plans || []).map(
           (plan: any, index: number) => ({
             id: plan.id || plan._id || String(index + 1),
@@ -89,8 +93,6 @@ export default function DocPlansScreen() {
       active = false;
     };
   }, [doctorEmail]);
-
-  const [allPlans, setAllPlans] = useState<Plan[]>([]);
 
   const renderStatusIcon = (status: PlanStatus) => {
     switch (status) {

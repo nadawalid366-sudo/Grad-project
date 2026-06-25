@@ -43,7 +43,31 @@ export function getToken(): string | null {
 }
 
 export function getUser(): AuthUser | null {
-  return cachedUser;
+  if (cachedUser) return cachedUser;
+  if (cachedToken) {
+    try {
+      const payloadBase64 = cachedToken.split('.')[1];
+      // React Native doesn't have atob globally, so we can use a simple base64 decoder
+      // Or we can just rely on the token. For now, since we know it's base64url:
+      const base64 = payloadBase64.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(
+        Array.prototype.map
+          .call(atob(base64), function (c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          })
+          .join('')
+      );
+      const payload = JSON.parse(jsonPayload);
+      return {
+        email: payload.email,
+        role: payload.role,
+        fullName: payload.email.split('@')[0],
+      };
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export function isLoggedIn(): boolean {

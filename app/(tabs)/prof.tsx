@@ -511,46 +511,6 @@ export default function ProfileSettings() {
         {/* Bottom Spacer */}
         <View style={styles.bottomSpacer} />
       </ScrollView>
-
-      {/* Bottom Navigation Bar */}
-      <View style={styles.bottomNavigation}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() =>
-            router.push({ pathname: "/(tabs)/home", params: userData })
-          }
-        >
-          <Ionicons name="home-outline" size={24} color="#9CA3AF" />
-          <Text style={styles.navLabel}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() =>
-            router.push({ pathname: "/(tabs)/logs", params: userData })
-          }
-        >
-          <Ionicons name="document-text-outline" size={24} color="#9CA3AF" />
-          <Text style={styles.navLabel}>Logs</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() =>
-            router.push({ pathname: "/(tabs)/plans", params: userData })
-          }
-        >
-          <Ionicons name="calendar-outline" size={24} color="#9CA3AF" />
-          <Text style={styles.navLabel}>Plans</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="chatbubble-outline" size={24} color="#9CA3AF" />
-          <Text style={styles.navLabel}>Messages</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="person" size={24} color="#3B82F6" />
-          <Text style={[styles.navLabel, { color: "#3B82F6" }]}>Profile</Text>
-        </TouchableOpacity>
-      </View>
-
       {/* Logout confirmation */}
       <Modal
         visible={showLogoutModal}
@@ -584,7 +544,7 @@ export default function ProfileSettings() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#F8FAFC", // Light slate-blue
   },
   scrollContent: {
     paddingBottom: 100,
@@ -668,18 +628,18 @@ const styles = StyleSheet.create({
   },
   profileEmail: {
     fontSize: 13,
-    color: "#3B82F6",
+    color: "#2563EB",
   },
   editButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderWidth: 1,
-    borderColor: "#3B82F6",
+    borderColor: "#2563EB",
     borderRadius: 6,
   },
   editButtonText: {
     fontSize: 12,
-    color: "#3B82F6",
+    color: "#2563EB",
     fontWeight: "600",
   },
   profileStats: {
@@ -765,7 +725,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#3B82F6",
+    borderColor: "#2563EB",
     borderStyle: "dashed",
     alignItems: "center",
     marginTop: 4,
@@ -773,7 +733,7 @@ const styles = StyleSheet.create({
   addProfessionalText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#3B82F6",
+    color: "#2563EB",
   },
   settingsHeader: {
     paddingHorizontal: 20,
@@ -893,29 +853,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   bottomSpacer: {
-    height: 20,
-  },
-  bottomNavigation: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    paddingBottom: 8,
-  },
-  navItem: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-  },
-  navLabel: {
-    fontSize: 11,
-    color: "#9CA3AF",
-    marginTop: 4,
-    fontWeight: "600",
+    height: 100, // Extra padding for global CustomTabBar
   },
 });

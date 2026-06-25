@@ -1,12 +1,13 @@
 /**
  * useChat Hook
- * Manages chat state and logic
+ * Manages chat state and logic with health context awareness
  */
 
 import {
-    clearChatHistory as clearChatHistoryApi,
-    getChatHistory,
-    sendChatMessage,
+  clearChatHistory as clearChatHistoryApi,
+  getChatHistory,
+  sendChatMessage,
+  type HealthContext,
 } from '@/services/aiChatService';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -17,7 +18,7 @@ export interface ChatMessage {
   timestamp: string;
 }
 
-export function useChat() {
+export function useChat(healthContext?: HealthContext) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,11 +32,12 @@ export function useChat() {
       setError(null);
       setLoading(true);
       const history = await getChatHistory();
-      setMessages(history);
+      if (Array.isArray(history)) {
+        setMessages(history);
+      }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load chat history';
-      setError(errorMessage);
-      console.error('Chat history error:', err);
+      // Don't show an error on initial load failure — chat still works
+      console.warn('Chat history load failed (non-fatal):', err);
     } finally {
       setLoading(false);
     }
@@ -52,19 +54,19 @@ export function useChat() {
         return;
       }
 
+      const userMsg: ChatMessage = {
+        id: Date.now().toString() + '_user',
+        role: 'user',
+        content: userMessage,
+        timestamp: new Date().toISOString(),
+      };
+
       try {
         setError(null);
         setLoading(true);
+        setMessages((prev) => [...prev, userMsg]);
 
-        const userMsg: ChatMessage = {
-          id: Date.now().toString() + '_user',
-          role: 'user',
-          content: userMessage,
-          timestamp: new Date().toISOString(),
-        };
-        addMessage(userMsg);
-
-        const aiResponse = await sendChatMessage(userMessage);
+        const aiResponse = await sendChatMessage(userMessage, healthContext);
 
         const aiMsg: ChatMessage = {
           id: Date.now().toString() + '_ai',
@@ -72,18 +74,19 @@ export function useChat() {
           content: aiResponse,
           timestamp: new Date().toISOString(),
         };
-        addMessage(aiMsg);
+        setMessages((prev) => [...prev, aiMsg]);
 
         return aiResponse;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to send message';
         setError(errorMessage);
         console.error('Chat error:', err);
       } finally {
         setLoading(false);
       }
     },
-    [addMessage]
+    [healthContext]
   );
 
   const clearMessages = useCallback(async () => {
@@ -93,9 +96,9 @@ export function useChat() {
       await clearChatHistoryApi();
       setMessages([]);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to clear chat history';
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to clear chat history';
       setError(errorMessage);
-      console.error('Clear history error:', err);
     } finally {
       setLoading(false);
     }

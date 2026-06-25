@@ -13,11 +13,10 @@ import { getDb } from "../../db/mongoClient.js";
  */
 export async function sendMessage(req, res, next) {
   try {
-    const { message } = req.body;
-    const userId = req.auth.sub; // From auth middleware
+    const { message, healthContext } = req.body;
+    const userId = req.auth.sub;
     const email = req.auth.email;
 
-    // Validation
     if (!message || typeof message !== "string") {
       throw new ValidationError("Message must be a non-empty string");
     }
@@ -26,15 +25,15 @@ export async function sendMessage(req, res, next) {
     if (trimmedMessage.length === 0) {
       throw new ValidationError("Message cannot be empty or whitespace only");
     }
-
     if (trimmedMessage.length > 5000) {
       throw new ValidationError("Message cannot exceed 5000 characters");
     }
 
-    // Generate AI response
+    // Generate AI response with optional health context
     const aiResponse = await groqService.generateResponse(
       trimmedMessage,
-      userId
+      userId,
+      healthContext || null
     );
 
     if (!aiResponse) {
@@ -42,12 +41,9 @@ export async function sendMessage(req, res, next) {
     }
 
     // Store message in database for history/analytics (non-blocking)
-    _storeChatMessage(userId, email, trimmedMessage, aiResponse).catch(
-      (err) => {
-        console.error("Error storing chat message:", err);
-        // Don't fail the request if storage fails
-      }
-    );
+    _storeChatMessage(userId, email, trimmedMessage, aiResponse).catch((err) => {
+      console.error("Error storing chat message:", err);
+    });
 
     return res.status(200).json({
       success: true,
@@ -60,7 +56,46 @@ export async function sendMessage(req, res, next) {
 }
 
 /**
- * POST /api/ai-chat/clear-history
+ * POST /api/ai-chat/classify-voice
+ * Classify a voice transcript into a health log category using AI
+ * Body: { transcript: string }
+ * Returns: { type, value, confidence }
+ */
+export async function classifyVoiceInput(req, res, next) {
+  try {
+    const { transcript } = req.body;
+
+    if (!transcript || typeof transcript !== "string" || !transcript.trim()) {
+      return res.status(400).json({ success: false, error: "transcript is required" });
+    }
+
+    const result = await groqService.classifyVoiceInput(transcript.trim());
+
+    return res.status(200).json({
+      success: true,
+      ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * POST /api/ai-chat/daily-insight
+ * Generate a proactive daily insight from Aura
+ */
+export async function getDailyInsight(req, res, next) {
+  try {
+    const { healthContext } = req.body;
+    const insight = await groqService.generateDailyInsight(healthContext || null);
+    return res.status(200).json({ success: true, insight });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * DELETE /api/ai-chat/history
  * Clear conversation history for the user
  */
 export async function clearChatHistory(req, res, next) {
@@ -69,11 +104,8 @@ export async function clearChatHistory(req, res, next) {
 
     groqService.clearHistory(userId);
 
-    // Also clear from database if storing history
     const db = await getDb();
-    await db
-      .collection("chatHistory")
-      .deleteMany({ userId });
+    await db.collection("chatHistory").deleteMany({ userId });
 
     return res.status(200).json({
       success: true,
@@ -101,7 +133,6 @@ export async function getChatHistory(req, res, next) {
       .limit(limit)
       .toArray();
 
-    // Reverse to get chronological order
     history.reverse();
 
     return res.status(200).json({
@@ -120,11 +151,11 @@ export async function getChatHistory(req, res, next) {
 }
 
 /**
- * Health check for AI Chat service
+ * GET /api/ai-chat/health
  */
 export async function healthCheck(req, res) {
   try {
-    await groqService.validateApiKey();
+    groqService.validateApiKey();
     return res.status(200).json({
       success: true,
       service: "AI Chat",
@@ -142,35 +173,15 @@ export async function healthCheck(req, res) {
   }
 }
 
-/**
- * Store chat message in database for history
- * @private
- */
 async function _storeChatMessage(userId, email, userMessage, aiResponse) {
-  try {
-    const db = await getDb();
-    const now = new Date();
-
-    // Store user message
-    await db.collection("chatHistory").insertOne({
-      userId,
-      email,
-      role: "user",
-      content: userMessage,
-      createdAt: now,
-    });
-
-    // Store AI response
-    await db.collection("chatHistory").insertOne({
-      userId,
-      email,
-      role: "assistant",
-      content: aiResponse,
-      createdAt: new Date(),
-    });
-  } catch (error) {
-    throw error;
-  }
+  const db = await getDb();
+  const now = new Date();
+  await db.collection("chatHistory").insertOne({
+    userId, email, role: "user", content: userMessage, createdAt: now,
+  });
+  await db.collection("chatHistory").insertOne({
+    userId, email, role: "assistant", content: aiResponse, createdAt: new Date(),
+  });
 }
 
 export default {
@@ -178,4 +189,6 @@ export default {
   clearChatHistory,
   getChatHistory,
   healthCheck,
+  classifyVoiceInput,
+  getDailyInsight,
 };

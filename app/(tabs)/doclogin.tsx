@@ -39,10 +39,13 @@ export default function DoctorLoginScreen() {
   const isRegister = mode === "register";
 
   const goToDashboard = (name: string, professionalEmail: string) => {
-    router.replace({
-      pathname: "/(tabs)/dochome",
-      params: { doctorName: name, email: professionalEmail },
-    });
+    // Add slight delay to ensure doctor record is committed to database
+    setTimeout(() => {
+      router.replace({
+        pathname: "/(tabs)/dochome",
+        params: { doctorName: name, email: professionalEmail },
+      });
+    }, 1500);
   };
 
   const handleSignInPress = async () => {

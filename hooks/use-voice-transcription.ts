@@ -65,6 +65,14 @@ export function useVoiceTranscription() {
         recordingRef.current = null;
       }
 
+      // Reset audio session fully before starting a new recording.
+      // This prevents "Only one Recording object can be prepared" errors.
+      try {
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
+      } catch {
+        // ignore
+      }
+
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,

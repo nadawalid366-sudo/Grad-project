@@ -430,6 +430,7 @@ export async function getUserByEmail(email: string) {
 }
 
 export type PatientDashboard = {
+  healthScore?: number;
   user: {
     email: string;
     fullName: string;
@@ -441,8 +442,12 @@ export type PatientDashboard = {
   metrics: Record<string, unknown>[];
   healthMetrics?: {
     calories: { current: number; goal: number };
-    sleep: { bedtime: string; wakeTime: string };
-    water: { amount: number; unit: "cups" | "litres"; goal: number };
+    sleep: { bedtime: string; wakeTime: string; hours: number; goal?: number };
+    water: { amount: number; unit: "cups" | "litres" | "glasses"; goal: number };
+    medication: { taken: number; goal: number };
+    exercise?: { minutes: number; goal: number };
+    vitals?: { heartRate?: number };
+    mind?: { current?: number; goal?: number };
   };
   recentActivities: Record<string, unknown>[];
   quickActions: Record<string, unknown>[];
@@ -649,6 +654,38 @@ export async function sendMessage(
     {
       method: "POST",
       body: payload,
+    },
+  );
+}
+
+export async function fetchDoctorMessages(email: string) {
+  return apiRequest<{ messages: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/messages`,
+  );
+}
+
+export async function sendDoctorMessage(
+  email: string,
+  payload: {
+    patientEmail: string;
+    message: string;
+  },
+) {
+  return apiRequest<{ message: string; messageId: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/messages`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function classifyVoice(transcript: string) {
+  return apiRequest<{ success: boolean; type: string; title: string; details: any }>(
+    `/api/ai-chat/classify-voice`,
+    {
+      method: "POST",
+      body: { transcript },
     },
   );
 }

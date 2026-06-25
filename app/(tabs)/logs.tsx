@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { deletePatientLog, fetchPatientDashboard, savePatientLog, updatePatientLog } from '../../services/api';
 import { useVoiceTranscription } from '../../hooks/use-voice-transcription';
+import { DetailedMetricScreen } from '../../components/DetailedMetricScreen';
 
 interface LogEntry {
   id: string;
@@ -24,6 +25,7 @@ interface LogEntry {
   title: string;
   subtitle: string;
   timestamp: string;
+  date: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   color: string;
   details?: {
@@ -86,25 +88,10 @@ export default function HealthLogs() {
   const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null);
   const [userData, setUserData] = useState<any>(null);
   const [logEntries, setLogEntries] = useState<LogEntry[]>([]);
-  const [isVoiceAssistantOpen, setIsVoiceAssistantOpen] = useState(false);
-  const [voiceAssistantScreen, setVoiceAssistantScreen] = useState<'listening' | 'confirmation'>('listening');
-  const [selectedLogType, setSelectedLogType] = useState<string>('');
-  const [voiceTranscript, setVoiceTranscript] = useState('');
-  const [voiceLogCategory, setVoiceLogCategory] = useState<LogCategory>('meal');
-  const [isSavingVoiceLog, setIsSavingVoiceLog] = useState(false);
-  const {
-    isRecording,
-    isTranscribing,
-    error: voiceError,
-    start: startVoiceRecording,
-    stopAndTranscribe,
-    cancel: cancelVoiceRecording,
-  } = useVoiceTranscription();
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [editSubtitle, setEditSubtitle] = useState('');
   const [isSavingEdit, setIsSavingEdit] = useState(false);
-  const pulseAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     setUserData({
@@ -112,7 +99,7 @@ export default function HealthLogs() {
       age: params.age || '',
       height: params.height || '',
       weight: params.weight || '',
-      email: params.email || 'user@example.com',
+      email: params.email || '',
     });
   }, [params.fullName, params.age, params.height, params.weight, params.email]);
 
@@ -147,6 +134,7 @@ export default function HealthLogs() {
                 title: String(log.title || 'Health Log'),
                 subtitle,
                 timestamp: String(log.timestamp || 'Just now'),
+                date: log.createdAt ? new Date(log.createdAt).toDateString() : new Date().toDateString(),
                 icon: (
                   log.icon ||
                   (type === 'meal'
@@ -161,15 +149,9 @@ export default function HealthLogs() {
                 ) as keyof typeof MaterialCommunityIcons.glyphMap,
                 color: String(
                   log.color ||
-                    (type === 'meal'
-                      ? '#F59E0B'
-                      : type === 'exercise'
-                        ? '#3B82F6'
-                        : type === 'medication'
-                          ? '#EC4899'
-                          : type === 'vitals'
-                            ? '#EF4444'
-                            : '#8B5CF6')
+                    (type === 'vitals'
+                      ? '#EF4444' // Keep red for vitals/alerts
+                      : '#2563EB') // Everything else uses standard blue
                 ),
                 details,
               };
@@ -204,84 +186,8 @@ export default function HealthLogs() {
     }, [userData?.email, loadLogs])
   );
 
-  // Pulsating animation
-  useEffect(() => {
-    if (isVoiceAssistantOpen && voiceAssistantScreen === 'listening') {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: false,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 0,
-            duration: 1000,
-            useNativeDriver: false,
-          }),
-        ])
-      ).start();
-    }
-  }, [isVoiceAssistantOpen, voiceAssistantScreen, pulseAnim]);
-
   const handleOpenVoiceAssistant = () => {
-    setIsVoiceAssistantOpen(true);
-    setVoiceAssistantScreen('listening');
-    setSelectedLogType('');
-    setVoiceTranscript('');
-    startVoiceRecording().catch(() => {});
-  };
-
-  const handleCloseVoiceAssistant = () => {
-    cancelVoiceRecording().catch(() => {});
-    setIsVoiceAssistantOpen(false);
-    setVoiceAssistantScreen('listening');
-    setSelectedLogType('');
-    setVoiceTranscript('');
-    pulseAnim.setValue(0);
-  };
-
-  const handleListeningComplete = async () => {
-    const transcript = await stopAndTranscribe();
-    const cleanTranscript = (transcript || '').trim();
-
-    if (!cleanTranscript) {
-      setVoiceTranscript('');
-      setVoiceAssistantScreen('confirmation');
-      return;
-    }
-
-    // Pre-select the auto-detected category, but let the user change it before
-    // saving on the confirmation screen.
-    const detected = normalizeLogType('', cleanTranscript, cleanTranscript);
-    setVoiceLogCategory(detected);
-    setVoiceTranscript(cleanTranscript);
-    setVoiceAssistantScreen('confirmation');
-  };
-
-  const handleSaveVoiceLog = async () => {
-    const email = userData?.email;
-    if (!email || !voiceTranscript.trim()) {
-      handleCloseVoiceAssistant();
-      return;
-    }
-
-    setIsSavingVoiceLog(true);
-    try {
-      await savePatientLog(email, {
-        type: voiceLogCategory,
-        title: voiceTranscript.trim(),
-        subtitle: voiceTranscript.trim(),
-        note: '',
-      });
-      await loadLogs(email);
-      handleCloseVoiceAssistant();
-    } catch (error) {
-      console.log('Failed to save voice log:', error);
-      Alert.alert('Could not save', 'Failed to save the log. Please try again.');
-    } finally {
-      setIsSavingVoiceLog(false);
-    }
+    DeviceEventEmitter.emit("OPEN_VOICE_MODAL");
   };
 
   const handleOpenEdit = (entry: LogEntry) => {
@@ -376,13 +282,30 @@ export default function HealthLogs() {
     return matchesCategory && matchesSearch;
   });
 
-  const visibleSections: LogCategory[] = selectedCategory === 'all' ? sectionOrder : [selectedCategory];
-  const groupedEntries = visibleSections
-    .map((type) => ({
-      type,
-      entries: filteredEntries.filter((entry) => entry.type === type),
-    }))
-    .filter((section) => section.entries.length > 0);
+  // Group by Date instead of Category
+  const groupedByDate = filteredEntries.reduce((acc, entry) => {
+    const d = entry.date;
+    if (!acc[d]) acc[d] = [];
+    acc[d].push(entry);
+    return acc;
+  }, {} as Record<string, LogEntry[]>);
+
+  const groupedEntries = Object.keys(groupedByDate)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+    .map(dateStr => {
+      let label = dateStr;
+      const todayStr = new Date().toDateString();
+      const yesterdayStr = new Date(Date.now() - 86400000).toDateString();
+      
+      if (dateStr === todayStr) label = "Today";
+      else if (dateStr === yesterdayStr) label = "Yesterday";
+      
+      return {
+        type: dateStr, // unique key
+        label: label,
+        entries: groupedByDate[dateStr]
+      };
+    });
 
   const renderLogEntry = (entry: LogEntry) => {
     const isExpanded = expandedEntryId === entry.id;
@@ -502,6 +425,10 @@ export default function HealthLogs() {
     );
   };
 
+  if (params.type) {
+    return <DetailedMetricScreen type={params.type as string} email={params.email as string} />;
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -562,7 +489,7 @@ export default function HealthLogs() {
           {groupedEntries.length > 0 ? (
             groupedEntries.map((section) => (
               <View key={section.type} style={styles.logSection}>
-                <Text style={styles.logSectionTitle}>{sectionLabels[section.type]}</Text>
+                <Text style={styles.logSectionTitle}>{section.label}</Text>
                 {section.entries.map(renderLogEntry)}
               </View>
             ))
@@ -587,37 +514,6 @@ export default function HealthLogs() {
         <View style={styles.bottomSpacer} />
       </ScrollView>
 
-      {/* Floating Action Button */}
-      <TouchableOpacity 
-        style={styles.fab}
-        onPress={handleOpenVoiceAssistant}
-      >
-        <MaterialCommunityIcons name="microphone" size={28} color="#FFFFFF" />
-      </TouchableOpacity>
-
-      {/* Bottom Navigation Bar */}
-      <View style={styles.bottomNavigation}>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push({ pathname: '/(tabs)/home', params: userData })}>
-          <Ionicons name="home-outline" size={24} color="#9CA3AF" />
-          <Text style={styles.navLabel}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="document-text" size={24} color="#3B82F6" />
-          <Text style={[styles.navLabel, { color: '#3B82F6' }]}>Logs</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push({ pathname: '/(tabs)/plans', params: userData })}>
-          <Ionicons name="calendar-outline" size={24} color="#9CA3AF" />
-          <Text style={styles.navLabel}>Plans</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="chatbubble-outline" size={24} color="#9CA3AF" />
-          <Text style={styles.navLabel}>Messages</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push({ pathname: '/(tabs)/prof', params: userData })}>
-          <Ionicons name="person-outline" size={24} color="#9CA3AF" />
-          <Text style={styles.navLabel}>Profile</Text>
-        </TouchableOpacity>
-      </View>
 
       {/* Edit Log Modal */}
       <Modal
@@ -671,168 +567,15 @@ export default function HealthLogs() {
         </View>
       </Modal>
 
-      {/* Voice Assistant Modal */}
-      <Modal
-        visible={isVoiceAssistantOpen}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={handleCloseVoiceAssistant}
+
+
+      {/* Floating Action Button */}
+      <TouchableOpacity 
+        style={styles.fab} 
+        onPress={() => DeviceEventEmitter.emit('OPEN_VOICE_MODAL')}
       >
-        <View style={styles.modalOverlay}>
-          {voiceAssistantScreen === 'listening' ? (
-            // Listening Screen
-            <View style={styles.voiceModalContent}>
-              <View style={styles.voiceModalHeader}>
-                <View>
-                  <Text style={styles.voiceModalTitle}>Voice Assistant</Text>
-                  <Text style={styles.selectedTypeLabel}>Speak directly. Your log type will be detected automatically.</Text>
-                </View>
-                <TouchableOpacity onPress={handleCloseVoiceAssistant}>
-                  <Ionicons name="close" size={28} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.listeningContainer}>
-                <Text style={styles.listeningLabel}>
-                  {isTranscribing ? 'Transcribing...' : 'Listening...'}
-                </Text>
-
-                {/* Pulsating Waveform Circle */}
-                <View style={styles.pulseContainer}>
-                  <Animated.View
-                    style={[
-                      styles.pulseRing,
-                      {
-                        opacity: pulseAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [0.8, 0.2],
-                        }),
-                        transform: [
-                          {
-                            scale: pulseAnim.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [1, 1.5],
-                            }),
-                          },
-                        ],
-                      },
-                    ]}
-                  />
-                  <View style={styles.microphoneCircle}>
-                    {isTranscribing ? (
-                      <ActivityIndicator size="large" color="#FFFFFF" />
-                    ) : (
-                      <MaterialCommunityIcons name="microphone" size={40} color="#FFFFFF" />
-                    )}
-                  </View>
-                </View>
-
-                <Text style={styles.instructionText}>
-                  {voiceError
-                    ? voiceError
-                    : isTranscribing
-                      ? 'Converting your speech to text'
-                      : 'Speak clearly, then tap Done'}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.listeningButton,
-                  (isTranscribing || !isRecording) && { opacity: 0.6 },
-                ]}
-                onPress={handleListeningComplete}
-                disabled={isTranscribing || !isRecording}
-              >
-                <Text style={styles.listeningButtonText}>
-                  {isTranscribing ? 'Please wait...' : 'Done'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            // Confirmation Screen
-            <View style={styles.voiceModalContent}>
-              <View style={styles.confirmationHeader}>
-                <Text style={styles.confirmationTitle}>Confirm your entry</Text>
-                <TouchableOpacity onPress={handleCloseVoiceAssistant}>
-                  <Ionicons name="close" size={28} color="#6B7280" />
-                </TouchableOpacity>
-              </View>
-
-              {voiceTranscript ? (
-                <>
-                  <View style={styles.confirmationDetails}>
-                    <Text style={styles.confirmationDetailLabel}>You said:</Text>
-                    <Text style={styles.confirmationDetailValue}>
-                      &quot;{voiceTranscript}&quot;
-                    </Text>
-                  </View>
-
-                  <Text style={styles.categoryPickerLabel}>Log as:</Text>
-                  <View style={styles.categoryPickerRow}>
-                    {categories
-                      .filter((category) => category.id !== 'all')
-                      .map((category) => {
-                        const isActive = voiceLogCategory === category.id;
-                        return (
-                          <TouchableOpacity
-                            key={category.id}
-                            onPress={() =>
-                              setVoiceLogCategory(category.id as LogCategory)
-                            }
-                            style={[
-                              styles.categoryPickerChip,
-                              isActive && {
-                                backgroundColor: category.color,
-                                borderColor: category.color,
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.categoryPickerChipText,
-                                isActive && styles.categoryPickerChipTextActive,
-                              ]}
-                            >
-                              {category.label}
-                            </Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                  </View>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.confirmButton,
-                      isSavingVoiceLog && { opacity: 0.6 },
-                    ]}
-                    onPress={handleSaveVoiceLog}
-                    disabled={isSavingVoiceLog}
-                  >
-                    <Text style={styles.confirmButtonText}>
-                      {isSavingVoiceLog ? 'Saving...' : 'Save log'}
-                    </Text>
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <View style={styles.confirmationDetails}>
-                    <Text style={styles.detailSubtext}>
-                      No speech was detected. Please try again.
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.confirmButton}
-                    onPress={handleCloseVoiceAssistant}
-                  >
-                    <Text style={styles.confirmButtonText}>Done</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          )}
-        </View>
-      </Modal>
+        <MaterialCommunityIcons name="microphone" size={24} color="#FFFFFF" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -840,112 +583,138 @@ export default function HealthLogs() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: '#F8F6EF',
   },
   scrollContent: {
-    paddingBottom: 120,
+    padding: 24,
+    paddingBottom: 100,
   },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#FFFFFF',
-    marginBottom: 12,
+    marginBottom: 24,
+    marginTop: 20,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 4,
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 8,
   },
   headerSubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
+    fontSize: 16,
+    color: '#64748B',
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    marginVertical: 12,
-    paddingVertical: 10,
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    marginHorizontal: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   searchInput: {
     flex: 1,
-    marginLeft: 8,
-    fontSize: 14,
-    color: '#111827',
+    marginLeft: 12,
+    fontSize: 16,
+    color: '#0F172A',
   },
   categoryScroll: {
-    marginVertical: 12,
+    marginBottom: 24,
+    maxHeight: 40,
   },
   categoryContent: {
-    paddingHorizontal: 12,
-    gap: 8,
+    paddingRight: 24,
   },
   categoryButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#E5E7EB',
-    marginHorizontal: 4,
+    backgroundColor: '#FFFFFF',
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   categoryButtonActive: {
-    backgroundColor: '#3B82F6',
+    borderColor: 'transparent',
   },
   categoryButtonText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#6B7280',
+    color: '#64748B',
   },
   categoryButtonTextActive: {
     color: '#FFFFFF',
   },
   logsList: {
-    paddingHorizontal: 16,
+    gap: 24,
   },
   logSection: {
-    marginBottom: 12,
+    marginBottom: 8,
   },
   logSectionTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
-    color: '#111827',
-    marginBottom: 8,
-    marginTop: 4,
+    color: '#1E293B',
+    marginBottom: 16,
   },
-  logCard: {
+  logEntry: {
+    flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 12,
-    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  logIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  logContent: {
+    flex: 1,
   },
   logHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  logIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  logInfo: {
-    flex: 1,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 4,
   },
   logTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 2,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    flex: 1,
+    marginRight: 8,
+  },
+  logTimestamp: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '500',
   },
   logSubtitle: {
-    fontSize: 13,
     color: '#6B7280',
+    marginTop: 2,
   },
   logTime: {
     fontSize: 12,
@@ -1119,9 +888,9 @@ const styles = StyleSheet.create({
   analyticsButton: {
     marginHorizontal: 16,
     marginVertical: 12,
-    paddingVertical: 14,
-    backgroundColor: '#3B82F6',
-    borderRadius: 12,
+    paddingVertical: 16,
+    backgroundColor: '#2563EB', // Primary Blue
+    borderRadius: 16,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1129,27 +898,14 @@ const styles = StyleSheet.create({
   },
   analyticsButtonText: {
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#FFFFFF',
   },
   bottomSpacer: {
-    height: 20,
+    height: 100, // Extra padding for the floating CustomTabBar
   },
   fab: {
-    position: 'absolute',
-    bottom: 100,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#3B82F6',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    display: 'none', // Removed since we use CustomTabBar central button now
   },
   bottomNavigation: {
     position: 'absolute',

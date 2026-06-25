@@ -435,119 +435,6 @@ export default function MessagesPage() {
           </View>
         </View>
       )}
-
-      {/* Bottom Navigation Bar */}
-      <View style={styles.bottomNavigation}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() =>
-            router.push({
-              pathname: "/(tabs)/home",
-              params: { email: userEmail },
-            })
-          }
-        >
-          <Ionicons
-            name="home"
-            size={24}
-            color={selectedTab === "home" ? "#3B82F6" : "#9CA3AF"}
-          />
-          <Text
-            style={[
-              styles.navLabel,
-              selectedTab === "home" && { color: "#3B82F6" },
-            ]}
-          >
-            Home
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => router.push("/(tabs)/logs")}
-        >
-          <Ionicons
-            name="document-text"
-            size={24}
-            color={selectedTab === "logs" ? "#3B82F6" : "#9CA3AF"}
-          />
-          <Text
-            style={[
-              styles.navLabel,
-              selectedTab === "logs" && { color: "#3B82F6" },
-            ]}
-          >
-            Logs
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() =>
-            router.push({
-              pathname: "/(tabs)/plans",
-              params: { email: userEmail },
-            })
-          }
-        >
-          <Ionicons
-            name="calendar"
-            size={24}
-            color={selectedTab === "plans" ? "#3B82F6" : "#9CA3AF"}
-          />
-          <Text
-            style={[
-              styles.navLabel,
-              selectedTab === "plans" && { color: "#3B82F6" },
-            ]}
-          >
-            Plans
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => setSelectedTab("messages")}
-        >
-          <Ionicons
-            name="chatbubble"
-            size={24}
-            color={selectedTab === "messages" ? "#3B82F6" : "#9CA3AF"}
-          />
-          <Text
-            style={[
-              styles.navLabel,
-              selectedTab === "messages" && { color: "#3B82F6" },
-            ]}
-          >
-            Messages
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() =>
-            router.push({
-              pathname: "/(tabs)/prof",
-              params: { email: userEmail },
-            })
-          }
-        >
-          <Ionicons
-            name="person"
-            size={24}
-            color={selectedTab === "profile" ? "#3B82F6" : "#9CA3AF"}
-          />
-          <Text
-            style={[
-              styles.navLabel,
-              selectedTab === "profile" && { color: "#3B82F6" },
-            ]}
-          >
-            Profile
-          </Text>
-        </TouchableOpacity>
-      </View>
     </SafeAreaView>
   );
 }
@@ -555,7 +442,7 @@ export default function MessagesPage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#F8F6EF", // Organic beige
   },
   header: {
     flexDirection: "row",
@@ -607,7 +494,7 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#F8FAFC", // Light slate-blue
   },
   listHeader: {
     flexDirection: "row",
@@ -633,9 +520,9 @@ const styles = StyleSheet.create({
   doctorItem: {
     flexDirection: "row",
     backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 10,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -645,8 +532,8 @@ const styles = StyleSheet.create({
   },
   doctorItemActive: {
     backgroundColor: "#EFF6FF",
-    borderLeftWidth: 4,
-    borderLeftColor: "#3B82F6",
+    borderWidth: 1,
+    borderColor: "#2563EB",
   },
   doctorAvatarContainer: {
     position: "relative",
@@ -709,7 +596,7 @@ const styles = StyleSheet.create({
   },
   chatContainer: {
     flex: 1,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#F8FAFC",
   },
   chatHeader: {
     flexDirection: "row",
@@ -790,7 +677,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   patientMessageBubble: {
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#2563EB",
   },
   doctorMessageBubble: {
     backgroundColor: "#E5E7EB",
@@ -849,40 +736,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#3B82F6",
+    backgroundColor: "#2563EB",
     justifyContent: "center",
     alignItems: "center",
   },
   sendButtonDisabled: {
     backgroundColor: "#E5E7EB",
-  },
-  bottomNavigation: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    backgroundColor: "#FFFFFF",
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    paddingBottom: 8,
-    paddingTop: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 10,
-  },
-  navItem: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 8,
-  },
-  navLabel: {
-    fontSize: 11,
-    color: "#9CA3AF",
-    marginTop: 4,
-    fontWeight: "500",
   },
 });

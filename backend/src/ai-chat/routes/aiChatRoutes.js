@@ -14,15 +14,12 @@ import {
 
 const router = express.Router();
 
-/**
- * All AI Chat routes require authentication
- */
+// All AI Chat routes require authentication
 router.use(requireAuth);
 
 /**
  * POST /api/ai-chat/message
- * Send a message to the AI and get a response
- * Rate limited to 30 messages per minute
+ * Send a message to the AI and get a response (with optional healthContext in body)
  */
 router.post(
   "/message",
@@ -32,28 +29,34 @@ router.post(
 );
 
 /**
+ * POST /api/ai-chat/classify-voice
+ * Classify a voice transcript into a health log category using AI
+ * Body: { transcript: string }
+ */
+router.post("/classify-voice", chatController.classifyVoiceInput);
+
+/**
+ * POST /api/ai-chat/daily-insight
+ * Fetch Aura's proactive daily insight based on current health context
+ */
+router.post("/daily-insight", chatController.getDailyInsight);
+
+/**
  * GET /api/ai-chat/health
- * Health check for the AI Chat service
  */
 router.get("/health", chatController.healthCheck);
 
 /**
  * GET /api/ai-chat/history
- * Get chat history for the authenticated user
- * Query params:
- * - limit: number of messages to retrieve (default: 50, max: 200)
  */
 router.get("/history", chatController.getChatHistory);
 
 /**
  * DELETE /api/ai-chat/history
- * Clear chat history for the authenticated user
  */
 router.delete("/history", chatController.clearChatHistory);
 
-/**
- * Error handling middleware for this router
- */
+// Error handling middleware
 router.use(handleAIChatError);
 
 export default router;

@@ -2,6 +2,7 @@ import express from "express";
 import { ObjectId } from "mongodb";
 import { requireRole, requireSelf } from "../auth/authMiddleware.js";
 import { getDb } from "../db/mongoClient.js";
+import { groqService } from "../ai-chat/services/groqService.js";
 
 const router = express.Router();
 
@@ -9,6 +10,23 @@ const router = express.Router();
 // require the professional role.
 const patientOnly = requireSelf();
 const doctorOnly = [requireRole("professional"), requireSelf()];
+
+function formatTimeAgo(dateInput) {
+  const date = new Date(dateInput);
+  if (isNaN(date)) return "Just now";
+  const seconds = Math.floor((new Date() - date) / 1000);
+  let interval = seconds / 31536000;
+  if (interval > 1) return Math.floor(interval) + " years ago";
+  interval = seconds / 2592000;
+  if (interval > 1) return Math.floor(interval) + " months ago";
+  interval = seconds / 86400;
+  if (interval > 1) return Math.floor(interval) + " days ago";
+  interval = seconds / 3600;
+  if (interval > 1) return Math.floor(interval) + " hours ago";
+  interval = seconds / 60;
+  if (interval > 1) return Math.floor(interval) + " minutes ago";
+  return Math.floor(seconds) + " seconds ago";
+}
 
 async function getCollectionDocs(
   collectionName,
@@ -41,20 +59,11 @@ function mapPlanTypeToPatientType(planType = "") {
   return "general";
 }
 
-function formatTimeAgo(date) {
-  const now = new Date();
-  const diffMs = now - date;
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return "Just now";
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
-}
-
 function normalizeLogType(type = "", title = "", subtitle = "", note = "") {
+  // If the explicit type is passed and valid, strictly keep it.
+  const validTypes = ["meal", "exercise", "vitals", "medication", "symptom", "water", "sleep"];
+  if (validTypes.includes(type)) return type;
+
   const value = `${type} ${title} ${subtitle} ${note}`.toLowerCase();
 
   if (
@@ -111,6 +120,15 @@ function normalizeLogType(type = "", title = "", subtitle = "", note = "") {
     return "symptom";
   }
 
+  if (value.includes("water") || value.includes("drink") || value.includes("glass")) {
+    return "water";
+  }
+
+  if (value.includes("sleep") || value.includes("bed") || value.includes("nap")) {
+    return "sleep";
+  }
+
+
   return "symptom";
 }
 
@@ -127,7 +145,7 @@ router.get("/patient/:email", patientOnly, async (req, res) => {
       "patientLogs",
       { email },
       { createdAt: -1 },
-      20,
+      100, // Fetch up to 100 for the frontend feed
     );
     const plans = await getCollectionDocs(
       "patientPlans",
@@ -142,29 +160,75 @@ router.get("/patient/:email", patientOnly, async (req, res) => {
       50,
     );
 
-    const mealLogs = logs.filter((l) => l.type === "meal").length;
-    const medicationLogs = logs.filter((l) => l.type === "medication").length;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const todaysLogs = await getCollectionDocs(
+      "patientLogs",
+      { email, createdAt: { $gte: startOfToday } },
+      { createdAt: -1 },
+      200
+    );
+
+    let totalCalories = 0;
+    let totalWater = 0;
+    let totalMedication = 0;
+    let totalSleep = 0;
+
+    todaysLogs.forEach(l => {
+      if (l.type === "meal" && l.details?.calories) totalCalories += Number(l.details.calories);
+      if (l.type === "water" && l.details?.amount) totalWater += Number(l.details.amount);
+      if (l.type === "medication" && l.details?.taken) totalMedication += Number(l.details.taken);
+      if (l.type === "sleep" && l.details?.hours) totalSleep += Number(l.details.hours);
+    });
 
     // User-editable health metrics (calories, sleep schedule, water intake).
     // Stored per patient; fall back to computed/default values when unset.
     const stored = await db.collection("patientMetrics").findOne({ email });
     const healthMetrics = {
       calories: {
-        current: stored?.calories?.current ?? mealLogs * 400,
+        current: totalCalories,
         goal: stored?.calories?.goal ?? 2000,
       },
       sleep: {
+        hours: totalSleep,
         bedtime: stored?.sleep?.bedtime ?? "23:00",
         wakeTime: stored?.sleep?.wakeTime ?? "07:00",
       },
       water: {
-        amount: stored?.water?.amount ?? 0,
-        unit: stored?.water?.unit ?? "cups",
-        goal:
-          stored?.water?.goal ??
-          (stored?.water?.unit === "litres" ? 2 : 8),
+        amount: totalWater,
+        unit: stored?.water?.unit ?? "glasses",
+        goal: stored?.water?.goal ?? 8,
       },
+      medication: {
+        taken: totalMedication,
+        goal: stored?.medication?.goal ?? 2,
+      }
     };
+
+    // Calculate a basic health score (0.0 to 10.0)
+    let score = 2.0; // Base score just for using the app
+    
+    // Water (up to 3 points)
+    const waterGoal = healthMetrics.water.goal > 0 ? healthMetrics.water.goal : 8;
+    score += Math.min(totalWater / waterGoal, 1) * 3.0;
+
+    // Sleep (up to 2 points)
+    score += Math.min(totalSleep / 8, 1) * 2.0;
+
+    // Medication (up to 1.5 points)
+    if (healthMetrics.medication.goal > 0) {
+      score += Math.min(totalMedication / healthMetrics.medication.goal, 1) * 1.5;
+    } else {
+      score += 1.5; // No meds needed, free points
+    }
+
+    // Calories (up to 1.5 points)
+    if (totalCalories > 0 && totalCalories <= healthMetrics.calories.goal * 1.2) {
+      score += 1.5;
+    }
+
+    const healthScore = Math.min(score, 10.0);
 
     const metrics = [
       {
@@ -173,14 +237,14 @@ router.get("/patient/:email", patientOnly, async (req, res) => {
         current: healthMetrics.calories.current,
         goal: healthMetrics.calories.goal,
         unit: "kcal",
-        icon: "flame",
+        icon: "fire",
         color: "#10B981",
         backgroundColor: "#DCFCE7",
       },
       {
         id: "medication",
         title: "Medication",
-        current: medicationLogs > 0 ? 100 : 0,
+        current: totalMedication > 0 ? 100 : 0,
         goal: 100,
         unit: "%",
         icon: "pill",
@@ -238,6 +302,7 @@ router.get("/patient/:email", patientOnly, async (req, res) => {
         weight: user.profile?.weight || "",
         phone: user.phone || "",
       },
+      healthScore,
       metrics,
       healthMetrics,
       recentActivities,
@@ -260,16 +325,31 @@ router.get("/patient/:email", patientOnly, async (req, res) => {
 router.post("/patient/:email/logs", patientOnly, async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
-    const { type, title, subtitle, note } = req.body;
-    const normalizedType = normalizeLogType(type, title, subtitle, note);
-    const db = await getDb();
+    const { type, title, subtitle, note, isVoice, transcript, details } = req.body;
+    let logType = type;
+    let logTitle = title;
+    let logSubtitle = subtitle || note || "";
+    let logDetails = details || {};
 
+    if (isVoice && transcript && !details) {
+      // Use Groq to intelligently parse the voice transcript if details aren't provided
+      const parsed = await groqService.classifyVoiceInput(transcript);
+      logType = type || parsed.type;
+      logTitle = parsed.title;
+      logSubtitle = transcript;
+      logDetails = parsed.details || {};
+    } else if (!isVoice) {
+      logType = normalizeLogType(type, title, subtitle, note);
+    }
+
+    const db = await getDb();
     const result = await db.collection("patientLogs").insertOne({
       email,
-      type: normalizedType,
-      title,
-      subtitle: subtitle || note || "",
+      type: logType,
+      title: logTitle,
+      subtitle: logSubtitle,
       note: note || "",
+      details: logDetails,
       timestamp: new Date().toLocaleTimeString("en-US", {
         hour: "2-digit",
         minute: "2-digit",
@@ -433,12 +513,36 @@ router.get("/doctor/:email", doctorOnly, async (req, res) => {
       { createdAt: -1 },
       50,
     );
-    const patients = await getCollectionDocs(
+    // Fetch patient-doctor links, then join with real patient data from users collection
+    const patientLinks = await getCollectionDocs(
       "doctorPatients",
       { doctorEmail: email },
       { createdAt: -1 },
       50,
     );
+
+    // Enrich patient links with actual patient data from users collection
+    const patients = [];
+    for (const link of patientLinks) {
+      const patient = await db
+        .collection("users")
+        .findOne({ email: link.patientEmail });
+      if (patient) {
+        patients.push({
+          id: patient._id?.toString() || link.patientId,
+          patientId: link.patientId,
+          fullName: patient.profile?.fullName || patient.email.split("@")[0],
+          email: patient.email,
+          status: link.status || "active",
+          healthScore: patient.healthScore || 5,
+          phone: patient.phone || "",
+          age: patient.profile?.age || "",
+          height: patient.profile?.height || "",
+          weight: patient.profile?.weight || "",
+          assignedAt: link.assignedAt,
+        });
+      }
+    }
     const plans = await getCollectionDocs(
       "doctorPlans",
       { doctorEmail: email },
@@ -505,6 +609,77 @@ router.get("/doctor/:email", doctorOnly, async (req, res) => {
         message: "Failed to load doctor dashboard.",
         error: String(error),
       });
+  }
+});
+
+router.post("/doctor/:email/plans", doctorOnly, async (req, res) => {
+// TEST ENDPOINT: Assign sample patients to a doctor (for testing/seeding)
+router.post("/assign-test-patients", async (req, res) => {
+  try {
+    const { doctorEmail } = req.body;
+
+    if (!doctorEmail) {
+      return res.status(400).json({ message: "Doctor email is required." });
+    }
+
+    const normalizedDoctorEmail = doctorEmail.toLowerCase();
+    const db = await getDb();
+
+    // Verify doctor exists
+    const doctor = await db
+      .collection("doctors")
+      .findOne({ email: normalizedDoctorEmail });
+    if (!doctor) {
+      return res.status(404).json({ message: "Doctor not found." });
+    }
+
+    // Get first 5 patients from users collection
+    const testPatients = await db
+      .collection("users")
+      .find({})
+      .limit(5)
+      .toArray();
+
+    if (testPatients.length === 0) {
+      return res.status(404).json({ message: "No patients available for assignment." });
+    }
+
+    const assignments = [];
+    for (const patient of testPatients) {
+      // Check if already assigned
+      const existing = await db
+        .collection("doctorPatients")
+        .findOne({
+          doctorEmail: normalizedDoctorEmail,
+          patientEmail: patient.email,
+        });
+
+      if (!existing) {
+        const result = await db.collection("doctorPatients").insertOne({
+          doctorEmail: normalizedDoctorEmail,
+          doctorId: doctor._id.toString(),
+          patientEmail: patient.email,
+          patientId: patient._id.toString(),
+          assignedAt: new Date(),
+          status: "active",
+        });
+        assignments.push({
+          id: result.insertedId.toString(),
+          patientEmail: patient.email,
+          patientName: patient.profile?.fullName || patient.email.split("@")[0],
+        });
+      }
+    }
+
+    return res.status(201).json({
+      message: `Successfully assigned ${assignments.length} test patient(s) to doctor.`,
+      assignments,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      message: "Failed to assign test patients.",
+      error: String(error),
+    });
   }
 });
 
@@ -912,6 +1087,61 @@ router.post("/messages/:email", patientOnly, async (req, res) => {
       doctorId,
       doctorName,
       sender: "patient",
+      message,
+      timestamp: new Date().toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      isRead: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    return res
+      .status(201)
+      .json({
+        message: "Message sent.",
+        messageId: result.insertedId.toString(),
+      });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: "Failed to send message.", error: String(error) });
+  }
+});
+
+router.get("/doctor/:email/messages", doctorOnly, async (req, res) => {
+  try {
+    const email = req.params.email.toLowerCase();
+    const db = await getDb();
+    const doc = await db.collection("professionals").findOne({ email });
+    if (!doc) return res.status(404).json({ message: "Doctor not found" });
+
+    const messages = await db.collection("patientMessages").find({
+      doctorId: doc._id.toString()
+    }).sort({ createdAt: 1 }).limit(200).toArray();
+
+    return res.json({ messages });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: "Failed to load messages.", error: String(error) });
+  }
+});
+
+router.post("/doctor/:email/messages", doctorOnly, async (req, res) => {
+  try {
+    const email = req.params.email.toLowerCase();
+    const db = await getDb();
+    const doc = await db.collection("professionals").findOne({ email });
+    if (!doc) return res.status(404).json({ message: "Doctor not found" });
+
+    const { patientEmail, message } = req.body;
+    const result = await db.collection("patientMessages").insertOne({
+      email: patientEmail,
+      doctorId: doc._id.toString(),
+      doctorName: doc.fullName || "Care Team",
+      sender: "doctor",
       message,
       timestamp: new Date().toLocaleTimeString("en-US", {
         hour: "2-digit",
