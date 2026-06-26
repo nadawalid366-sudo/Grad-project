@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir \"c:\\\\Users\\\\shado\\\\Downloads\\\\Grad-project-marwan\")",
+      "Bash(npm --version)",
+      "Bash(\"c:/Users/shado/Downloads/Grad-project-marwan/venv/Scripts/pip.exe\" list *)",
+      "Bash(node --check \"c:/Users/shado/Downloads/Grad-project-marwan/backend/src/routes/dashboardRoutes.js\")"
+    ]
+  }
+}

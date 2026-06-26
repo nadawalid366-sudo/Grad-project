@@ -1,0 +1,853 @@
+import Constants from "expo-constants";
+import { Platform } from "react-native";
+import { getToken, signIn, signOut } from "./auth";
+
+// Optional callback the app can register to react to an expired/invalid session
+// (e.g. redirect to the login screen).
+let onUnauthorized: (() => void) | null = null;
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler;
+}
+
+function resolveApiBaseUrl() {
+  const constantsAny = Constants as unknown as {
+    expoConfig?: {
+      hostUri?: string;
+      extra?: { EXPO_PUBLIC_API_URL?: string };
+    };
+    expoGoConfig?: { debuggerHost?: string };
+    manifest2?: {
+      extra?: {
+        EXPO_PUBLIC_API_URL?: string;
+        expoGo?: { debuggerHost?: string };
+      };
+    };
+    manifest?: {
+      extra?: { EXPO_PUBLIC_API_URL?: string };
+      debuggerHost?: string;
+      hostUri?: string;
+    };
+  };
+
+  // Explicit override wins (set EXPO_PUBLIC_API_URL only if you need it).
+  const explicitUrl =
+    constantsAny.expoConfig?.extra?.EXPO_PUBLIC_API_URL ||
+    constantsAny.manifest2?.extra?.EXPO_PUBLIC_API_URL ||
+    constantsAny.manifest?.extra?.EXPO_PUBLIC_API_URL ||
+    process.env.EXPO_PUBLIC_API_URL;
+
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+
+  // Otherwise auto-detect the LAN IP from whatever host the Expo dev server
+  // (Metro) is served on — the phone already reaches that IP, so the backend
+  // on the same machine is reachable at <that-ip>:5001. This keeps working
+  // even when your network/IP changes.
+  const hostFromExpo =
+    constantsAny.expoConfig?.hostUri ||
+    constantsAny.expoGoConfig?.debuggerHost ||
+    constantsAny.manifest2?.extra?.expoGo?.debuggerHost ||
+    constantsAny.manifest?.hostUri ||
+    constantsAny.manifest?.debuggerHost;
+
+  if (hostFromExpo) {
+    const hostIp = hostFromExpo.split(":")[0];
+    return `http://${hostIp}:5001`;
+  }
+
+  return "http://localhost:5001";
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
+
+// The Python Whisper speech-to-text service runs on port 8000 (the Node backend
+// auto-starts it). It lives on the same machine as the backend, so reuse the
+// backend's host and just swap the port. Override with EXPO_PUBLIC_STT_URL.
+function resolveSttBaseUrl() {
+  const explicit =
+    process.env.EXPO_PUBLIC_STT_URL ||
+    (Constants as any)?.expoConfig?.extra?.EXPO_PUBLIC_STT_URL;
+  if (explicit) {
+    return explicit;
+  }
+
+  try {
+    const url = new URL(API_BASE_URL);
+    return `${url.protocol}//${url.hostname}:8000`;
+  } catch {
+    return "http://localhost:8000";
+  }
+}
+
+export const STT_BASE_URL = resolveSttBaseUrl();
+
+if (__DEV__) {
+  console.log(`[api] Using backend base URL: ${API_BASE_URL}`);
+  console.log(`[api] Using speech-to-text URL: ${STT_BASE_URL}`);
+}
+
+export type TranscriptionResult = {
+  success: boolean;
+  text: string;
+  language?: string;
+  processing_time?: number;
+};
+
+/**
+ * Uploads a recorded audio file to the Whisper speech-to-text service and
+ * returns the transcribed text. `fileUri` is the local URI produced by
+ * expo-audio's recorder (e.g. file:///.../recording.m4a).
+ */
+export async function transcribeAudio(
+  fileUri: string,
+): Promise<TranscriptionResult> {
+  const url = `${STT_BASE_URL}/transcribe`;
+
+  const formData = new FormData();
+
+  if (Platform.OS === "web") {
+    // On web the recorder hands back a blob: URL — fetch it and attach the Blob.
+    const fetched = await fetch(fileUri);
+    const blob = await fetched.blob();
+    formData.append("file", blob, "recording.webm");
+  } else {
+    // React Native: attach the local file URI directly.
+    let filename = fileUri.split("/").pop() || "recording.m4a";
+    if (!filename.includes(".")) {
+      filename += ".m4a";
+    }
+    const ext = filename.split(".").pop()?.toLowerCase() || "m4a";
+    formData.append("file", {
+      uri: fileUri,
+      name: filename,
+      type: `audio/${ext}`,
+    } as any);
+  }
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      body: formData,
+      headers: { Accept: "application/json" },
+    });
+
+    const rawText = await response.text();
+    const data = rawText ? JSON.parse(rawText) : {};
+
+    if (!response.ok) {
+      throw new Error(
+        data?.detail || data?.message || `Transcription failed (${response.status})`,
+      );
+    }
+
+    return data as TranscriptionResult;
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Cannot reach speech-to-text service at ${STT_BASE_URL}. Make sure the backend (and STT service) is running.`,
+      );
+    }
+    throw error;
+  }
+}
+
+type RequestOptions = {
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  body?: unknown;
+};
+
+async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const url = `${API_BASE_URL}${path}`;
+
+  try {
+    const token = getToken();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const response = await fetch(url, {
+      method: options.method || "GET",
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+
+    const rawText = await response.text();
+    const data = rawText ? JSON.parse(rawText) : {};
+
+    if (response.status === 401) {
+      // Token missing/expired — drop the session and notify the app.
+      await signOut();
+      if (onUnauthorized) onUnauthorized();
+      throw new Error(data?.message || "Your session has expired. Please sign in again.");
+    }
+
+    if (!response.ok) {
+      throw new Error(data?.message || `Request failed (${response.status})`);
+    }
+
+    return data as T;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Invalid JSON response from backend at ${url}`);
+    }
+
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Cannot reach backend at ${API_BASE_URL}. Make sure backend is running and phone/emulator can access this IP.`,
+      );
+    }
+
+    throw error;
+  }
+}
+
+export type LoginResponse = {
+  message: string;
+  token: string;
+  user: {
+    email: string;
+    fullName: string;
+    age: string;
+    height: string;
+    weight: string;
+  };
+};
+
+export async function registerUser(payload: {
+  email: string;
+  phone: string;
+  password: string;
+}) {
+  const result = await apiRequest<{
+    message: string;
+    token: string;
+    userId: string;
+    email: string;
+  }>("/api/v1/auth/register", {
+    method: "POST",
+    body: payload,
+  });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.email,
+      role: "patient",
+      fullName: result.email.split("@")[0],
+    });
+  }
+
+  return result;
+}
+
+export async function loginUser(payload: { email: string; password: string }) {
+  const result = await apiRequest<LoginResponse>("/api/v1/auth/login", {
+    method: "POST",
+    body: payload,
+  });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.user.email,
+      role: "patient",
+      fullName: result.user.fullName || result.user.email.split("@")[0],
+    });
+  }
+
+  return result;
+}
+
+export async function saveUserProfile(payload: {
+  email: string;
+  profile: {
+    fullName: string;
+    age: string;
+    gender: string;
+    height: string;
+    weight: string;
+    medicalConditions: string[];
+    allergies: string[];
+    healthGoals: string[];
+    language: string;
+    units: string;
+  };
+}) {
+  return apiRequest<{ message: string; user: Record<string, unknown> }>(
+    "/api/v1/users/profile",
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export type UserSubscription = {
+  id: string;
+  professionalId?: string | null;
+  professionalTitle: string;
+  planName: string;
+  amount: number;
+  period: string;
+  subscribedAt?: string;
+  selectedDoctorName?: string | null;
+};
+
+export async function saveUserSubscription(payload: {
+  email: string;
+  subscription: {
+    id?: string;
+    professionalId?: string | null;
+    professionalTitle: string;
+    planName: string;
+    amount: number;
+    period: string;
+    selectedDoctorName?: string | null;
+  };
+}) {
+  return apiRequest<{ message: string; subscription: UserSubscription }>(
+    "/api/v1/users/subscriptions",
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function fetchUserSubscriptions(email: string) {
+  return apiRequest<{ subscriptions: UserSubscription[] }>(
+    `/api/v1/users/${encodeURIComponent(email)}/subscriptions`,
+  );
+}
+
+export async function cancelSubscription(subscriptionId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/users/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function markMessagesRead(patientEmail: string, doctorId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/messages/${encodeURIComponent(patientEmail)}/read`,
+    { method: "PATCH", body: { doctorId } },
+  );
+}
+
+export async function markDoctorMessagesRead(doctorEmail: string, patientEmail: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(doctorEmail)}/messages/read`,
+    { method: "PATCH", body: { patientEmail } },
+  );
+}
+
+export type Professional = {
+  _id?: string;
+  id?: string;
+  type: "doctor" | "nutritionist" | "coach";
+  title: string;
+  description: string;
+  icon: string;
+  subscriptionPlans: {
+    id: string;
+    name: string;
+    price: number;
+    period: string;
+    description: string;
+    features: string[];
+  }[];
+  features: string[];
+  rating: number;
+  reviewCount: number;
+};
+
+export async function fetchProfessionals() {
+  return apiRequest<{ professionals: Professional[] }>("/api/v1/professionals");
+}
+
+export type RegisteredProfessional = {
+  id: string;
+  fullName: string;
+  email: string;
+  type: "doctor" | "nutritionist" | "coach";
+  specialty: string;
+  bio: string;
+  experience: string;
+  clinicName?: string;
+  consultationType: "free" | "paid";
+  price: number | null;
+  rating: number;
+  reviewCount: number;
+  createdAt?: string;
+};
+
+export async function registerProfessional(payload: {
+  fullName: string;
+  email: string;
+  password: string;
+  type: "doctor" | "nutritionist" | "coach";
+  specialty: string;
+  experience: string;
+  bio: string;
+  clinicName?: string;
+  consultationType: "free" | "paid";
+  price?: number;
+}) {
+  const result = await apiRequest<{
+    message: string;
+    token: string;
+    professional: RegisteredProfessional;
+  }>("/api/v1/professionals/register", {
+    method: "POST",
+    body: payload,
+  });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.professional.email,
+      role: "professional",
+      fullName: result.professional.fullName,
+    });
+  }
+
+  return result;
+}
+
+export async function loginProfessional(payload: {
+  email: string;
+  password: string;
+}) {
+  const result = await apiRequest<{
+    message: string;
+    token: string;
+    professional: RegisteredProfessional;
+  }>("/api/v1/professionals/login", {
+    method: "POST",
+    body: payload,
+  });
+
+  if (result.token) {
+    await signIn(result.token, {
+      email: result.professional.email,
+      role: "professional",
+      fullName: result.professional.fullName,
+    });
+  }
+
+  return result;
+}
+
+export async function fetchRegisteredProfessionals() {
+  return apiRequest<{ professionals: RegisteredProfessional[] }>(
+    "/api/v1/professionals/registered",
+  );
+}
+
+export async function getUserByEmail(email: string) {
+  return apiRequest<{
+    user: {
+      email: string;
+      phone?: string;
+      isVerified?: boolean;
+      profile?: Record<string, unknown>;
+    };
+  }>(`/api/v1/users/${encodeURIComponent(email)}`);
+}
+
+export type PatientDashboard = {
+  healthScore?: number;
+  user: {
+    email: string;
+    fullName: string;
+    age: string;
+    height: string;
+    weight: string;
+    phone: string;
+  };
+  metrics: Record<string, unknown>[];
+  healthMetrics?: {
+    calories: { current: number; goal: number };
+    sleep: { bedtime: string; wakeTime: string; hours: number; goal?: number };
+    water: { amount: number; unit: "cups" | "litres" | "glasses"; goal: number };
+    medication: { taken: number; goal: number };
+    exercise?: { minutes: number; goal: number };
+    vitals?: { heartRate?: number };
+    mind?: { current?: number; goal?: number };
+  };
+  recentActivities: Record<string, unknown>[];
+  quickActions: Record<string, unknown>[];
+  logs: Record<string, unknown>[];
+  plans: Record<string, unknown>[];
+  messages: Record<string, unknown>[];
+  professionals: Record<string, unknown>[];
+};
+
+export type DashboardLog = {
+  _id?: string;
+  id?: string;
+  email?: string;
+  type?: string;
+  title?: string;
+  subtitle?: string;
+  note?: string;
+  timestamp?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  calories?: number;
+  activity_minutes?: number;
+  blood_pressure?: number;
+};
+
+export type DoctorDashboard = {
+  doctor: Record<string, unknown>;
+  metrics: Record<string, unknown>[];
+  recentAlerts: Record<string, unknown>[];
+  patientActivity: Record<string, unknown>[];
+  patients: Record<string, unknown>[];
+  plans: Record<string, unknown>[];
+  analytics: {
+    stats: Record<string, unknown>[];
+    patientsByCondition: Record<string, unknown>[];
+    weeklyActivity: Record<string, unknown>[];
+    alertTrends: Record<string, unknown>[];
+  };
+};
+
+export async function fetchPatientDashboard(email: string) {
+  return apiRequest<PatientDashboard>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}`,
+  );
+}
+
+export async function fetchDashboardStats(email?: string) {
+  const query = email ? `?email=${encodeURIComponent(email)}` : "";
+  return apiRequest<DashboardLog[]>(`/api/dashboard-stats${query}`);
+}
+
+export async function savePatientLog(
+  email: string,
+  payload: {
+    type: string;
+    title: string;
+    subtitle?: string;
+    note?: string;
+  },
+) {
+  return apiRequest<{ message: string; logId: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function updatePatientLog(
+  email: string,
+  logId: string,
+  payload: {
+    type: string;
+    title: string;
+    subtitle?: string;
+    note?: string;
+  },
+) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs/${encodeURIComponent(logId)}`,
+    {
+      method: "PUT",
+      body: payload,
+    },
+  );
+}
+
+export async function deletePatientLog(email: string, logId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/logs/${encodeURIComponent(logId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+}
+
+export async function savePatientMetrics(
+  email: string,
+  payload: {
+    calories?: { current: number; goal: number };
+    sleep?: { bedtime: string; wakeTime: string };
+    water?: { amount: number; unit: "cups" | "litres"; goal: number };
+  },
+) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/metrics`,
+    {
+      method: "PUT",
+      body: payload,
+    },
+  );
+}
+
+export async function savePatientPlan(
+  email: string,
+  payload: {
+    title: string;
+    description: string;
+    type?: string;
+  },
+) {
+  return apiRequest<{ message: string; planId: string }>(
+    `/api/v1/dashboard/patient/${encodeURIComponent(email)}/plans`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function fetchDoctorDashboard(email: string) {
+  return apiRequest<DoctorDashboard>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}`,
+  );
+}
+
+export type NutritionPlan = {
+  _id?: string;
+  id: string;
+  doctorEmail: string;
+  planTitle: string;
+  planType: string;
+  status: "Active" | "Completed" | "Draft";
+  startDate: string;
+  endDate: string;
+  description: string;
+  goals: string[];
+  assignedTo: {
+    patientEmail: string;
+    patientName: string;
+    patientPlanId: string;
+    assignedAt: string;
+  }[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function saveDoctorPlan(
+  email: string,
+  payload: {
+    planTitle?: string;
+    planType: string;
+    status: string;
+    startDate: string;
+    endDate: string;
+    description: string;
+    goals: string[];
+    patientEmail?: string;
+    patientName?: string;
+    // legacy fields
+    patientAge?: number;
+    adherence?: number;
+  },
+) {
+  return apiRequest<{ message: string; planId: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function fetchDoctorPlans(email: string) {
+  return apiRequest<{ plans: NutritionPlan[] }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans`,
+  );
+}
+
+export async function updateDoctorPlan(
+  email: string,
+  planId: string,
+  payload: {
+    planTitle: string;
+    planType: string;
+    status: string;
+    startDate: string;
+    endDate: string;
+    description: string;
+    goals: string[];
+  },
+) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans/${encodeURIComponent(planId)}`,
+    { method: "PUT", body: payload },
+  );
+}
+
+export async function deleteDoctorPlan(email: string, planId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans/${encodeURIComponent(planId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function assignDoctorPlan(
+  email: string,
+  planId: string,
+  patientEmail: string,
+  patientName?: string,
+) {
+  return apiRequest<{ message: string; patientPlanId: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans/${encodeURIComponent(planId)}/assign`,
+    { method: "POST", body: { patientEmail, patientName } },
+  );
+}
+
+export async function duplicateDoctorPlan(email: string, planId: string) {
+  return apiRequest<{ message: string; planId: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/plans/${encodeURIComponent(planId)}/duplicate`,
+    { method: "POST", body: {} },
+  );
+}
+
+export type DoctorAlert = {
+  id: string;
+  _id?: string;
+  patientName: string;
+  patientEmail?: string;
+  doctorEmail?: string;
+  message: string;
+  priority: "RED" | "ORANGE" | "YELLOW" | "GREEN";
+  severity?: string;
+  reason?: string;
+  explanation?: string;
+  sourceType?: "log" | "message" | "vitals";
+  logType?: string;
+  isResolved: boolean;
+  createdAt?: string;
+};
+
+export async function fetchDoctorAlerts(email: string) {
+  return apiRequest<{ alerts: DoctorAlert[] }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts`,
+  );
+}
+
+export async function resolveDoctorAlert(email: string, alertId: string) {
+  return apiRequest<{ message: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/alerts/${encodeURIComponent(alertId)}/resolve`,
+    {
+      method: "PATCH",
+    },
+  );
+}
+
+export async function fetchDoctorPatients(email: string) {
+  return apiRequest<{ patients: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/patients`,
+  );
+}
+
+export async function fetchDoctorSubscriptions(email: string) {
+  return apiRequest<{
+    subscriptions: {
+      patientEmail: string;
+      patientName: string;
+      planName: string;
+      amount: number;
+      period: string;
+      subscribedAt?: string | null;
+      status: string;
+    }[];
+  }>(`/api/v1/dashboard/doctor/${encodeURIComponent(email)}/subscriptions`);
+}
+
+export type DoctorDashboardStats = {
+  activePatients: number;
+  unreadMessages: number;
+  pendingSubscriptions: number;
+  todayPatients: number;
+  highPriorityAlerts: number;
+  mediumAlerts: number;
+  compliance: number;
+  recentActivity: {
+    id: string;
+    type: "alert" | "log";
+    patientName: string;
+    message: string;
+    severity: string;
+    time: string;
+    logType?: string;
+    createdAt?: string;
+  }[];
+};
+
+export async function fetchDoctorDashboardStats(email: string) {
+  return apiRequest<DoctorDashboardStats>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/dashboard-stats`,
+  );
+}
+
+export async function fetchDoctorAnalytics(email: string) {
+  return apiRequest<DoctorDashboard["analytics"]>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/analytics`,
+  );
+}
+
+export async function fetchMessages(email: string) {
+  return apiRequest<{ messages: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/messages/${encodeURIComponent(email)}`,
+  );
+}
+
+export async function sendMessage(
+  email: string,
+  payload: {
+    doctorId: string;
+    doctorName: string;
+    message: string;
+  },
+) {
+  return apiRequest<{ message: string; messageId: string }>(
+    `/api/v1/dashboard/messages/${encodeURIComponent(email)}`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function fetchDoctorMessages(email: string) {
+  return apiRequest<{ messages: Record<string, unknown>[] }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/messages`,
+  );
+}
+
+export async function sendDoctorMessage(
+  email: string,
+  payload: {
+    patientEmail: string;
+    message: string;
+  },
+) {
+  return apiRequest<{ message: string; messageId: string }>(
+    `/api/v1/dashboard/doctor/${encodeURIComponent(email)}/messages`,
+    {
+      method: "POST",
+      body: payload,
+    },
+  );
+}
+
+export async function classifyVoice(transcript: string) {
+  return apiRequest<{ success: boolean; type: string; title: string; details: any }>(
+    `/api/ai-chat/classify-voice`,
+    {
+      method: "POST",
+      body: { transcript },
+    },
+  );
+}
